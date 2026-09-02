@@ -1,0 +1,21 @@
+# https://lefthook.dev/configuration/
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: golangci-lint fmt --diff
+    lint:
+      glob: "*.go"
+      run: golangci-lint run
+    build:
+      glob: "*.go"
+      run: go build ./...
+    test:
+      glob: "*.go"
+      run: go test ./...
+
+pre-push:
+  commands:
+    test:
+      run: go test -race ./...

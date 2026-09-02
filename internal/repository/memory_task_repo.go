@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
@@ -55,7 +56,7 @@ func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, 
 	return taskList[offset:end], nil
 }
 
-func (r *inMemoryTaskRepository) Count(params ListTasksParams) (int, error) {
+func (r *inMemoryTaskRepository) Count(_ ListTasksParams) (int, error) {
 	return len(r.tasks), nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// Task is a single to-do item.
 type Task struct {
 	ID        uuid.UUID `json:"id"`
 	Title     string    `json:"title"`
