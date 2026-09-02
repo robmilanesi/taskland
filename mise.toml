@@ -1,0 +1,20 @@
+[tools]
+go = "1.27"
+golangci-lint = "2.13.2"
+lefthook = "2.1.12"
+
+[tasks.setup]
+description = "Install git hooks and project tooling"
+run = "lefthook install"
+
+[tasks.lint]
+description = "Run linters"
+run = "golangci-lint run"
+
+[tasks.fmt]
+description = "Format code"
+run = "golangci-lint fmt"
+
+[tasks.check]
+description = "Run the full pre-commit gate"
+run = "lefthook run pre-commit --all-files"

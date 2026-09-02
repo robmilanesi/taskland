@@ -1,0 +1,14 @@
+# Binaries
+/bin/
+/taskland
+*.exe
+
+# Test / coverage output
+*.out
+coverage.*
+
+# lefthook local overrides
+lefthook-local.yml
+
+# Editor / OS
+.DS_Store

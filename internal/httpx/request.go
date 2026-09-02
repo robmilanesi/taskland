@@ -5,6 +5,8 @@ import (
 	"strconv"
 )
 
+// ParsePagination reads the "page" and "size" query parameters, falling back to
+// page 1 and size 20 when they are missing or invalid.
 func ParsePagination(r *http.Request) (page, size int) {
 	page = 1
 	size = 20

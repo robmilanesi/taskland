@@ -8,18 +8,22 @@ import (
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
+// TaskRepositoryType selects which TaskRepository implementation to build.
 type TaskRepositoryType int
 
+// Supported TaskRepository implementations.
 const (
 	TaskRepoInMemory TaskRepositoryType = iota
 	TaskRepoDatabase
 )
 
+// ListTasksParams holds the pagination options for listing tasks.
 type ListTasksParams struct {
 	Page int
 	Size int
 }
 
+// TaskRepository is the storage abstraction for tasks.
 type TaskRepository interface {
 	GetByID(string) (models.Task, error)
 	GetAll(ListTasksParams) ([]models.Task, error)
@@ -27,6 +31,7 @@ type TaskRepository interface {
 	Create(models.Task) (models.Task, error)
 }
 
+// NewTaskRepository builds a TaskRepository of the requested type.
 func NewTaskRepository(taskRepoType TaskRepositoryType) (TaskRepository, error) {
 	switch taskRepoType {
 	case TaskRepoInMemory:

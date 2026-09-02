@@ -1,3 +1,4 @@
+// Command server runs the taskland HTTP API.
 package main
 
 import (

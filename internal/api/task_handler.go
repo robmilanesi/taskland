@@ -10,14 +10,17 @@ import (
 	"github.com/robmilanesi/taskland/internal/repository"
 )
 
+// TaskHandler serves the HTTP endpoints for the task resource.
 type TaskHandler struct {
 	repo repository.TaskRepository
 }
 
+// NewTaskHandler returns a TaskHandler backed by the given repository.
 func NewTaskHandler(repo repository.TaskRepository) *TaskHandler {
 	return &TaskHandler{repo: repo}
 }
 
+// GetTask handles GET /api/v1/tasks/{id}.
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	task, err := h.repo.GetByID(id)
@@ -35,6 +38,7 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, task)
 }
 
+// GetAllTasks handles GET /api/v1/tasks with pagination.
 func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 	page, size := httpx.ParsePagination(r)
 	listParams := repository.ListTasksParams{Page: page, Size: size}
@@ -61,6 +65,7 @@ func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Create handles POST /api/v1/tasks.
 func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createTaskRequest
 	if !httpx.DecodeJSON(w, r, &req) {
