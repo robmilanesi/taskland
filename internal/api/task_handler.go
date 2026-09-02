@@ -60,3 +60,23 @@ func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 		TotalPages: (count + size - 1) / size,
 	})
 }
+
+func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var req createTaskRequest
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := req.validate(); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	task, err := h.repo.Create(req.toModel())
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+
+	w.Header().Set("Location", "/api/v1/tasks/"+task.ID.String())
+	httpx.WriteJSON(w, http.StatusCreated, task)
+}

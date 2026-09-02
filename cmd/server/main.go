@@ -19,6 +19,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/tasks/{id}", taskHandler.GetTask)
 	mux.HandleFunc("GET /api/v1/tasks", taskHandler.GetAllTasks)
+	mux.HandleFunc("POST /api/v1/tasks", taskHandler.Create)
 
 	log.Println("server avviato su :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
