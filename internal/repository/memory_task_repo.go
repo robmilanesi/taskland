@@ -1,10 +1,11 @@
 package repository
 
 import (
-	"cmp"
 	"maps"
 	"slices"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
@@ -38,7 +39,7 @@ func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, 
 
 	taskList := slices.Collect(maps.Values(r.tasks))
 	slices.SortFunc(taskList, func(a, b models.Task) int {
-		return cmp.Compare(a.ID, b.ID)
+		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 
 	offset := (params.Page - 1) * params.Size
@@ -56,4 +57,11 @@ func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, 
 
 func (r *inMemoryTaskRepository) Count(params ListTasksParams) (int, error) {
 	return len(r.tasks), nil
+}
+
+func (r *inMemoryTaskRepository) Create(task models.Task) (models.Task, error) {
+	task.ID = uuid.New()
+	task.CreatedAt = time.Now()
+	r.tasks[task.ID.String()] = task
+	return task, nil
 }

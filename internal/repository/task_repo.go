@@ -24,6 +24,7 @@ type TaskRepository interface {
 	GetByID(string) (models.Task, error)
 	GetAll(ListTasksParams) ([]models.Task, error)
 	Count(ListTasksParams) (int, error)
+	Create(models.Task) (models.Task, error)
 }
 
 func NewTaskRepository(taskRepoType TaskRepositoryType) (TaskRepository, error) {

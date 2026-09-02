@@ -26,3 +26,14 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 func WriteISE(w http.ResponseWriter) {
 	WriteError(w, http.StatusInternalServerError, "internal server error")
 }
+
+func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return false
+	}
+	return true
+}
