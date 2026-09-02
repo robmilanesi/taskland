@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/robmilanesi/taskland/internal/httpx"
+	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
 
@@ -27,9 +28,35 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteISE(w)
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, task)
+}
+
+func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
+	page, size := httpx.ParsePagination(r)
+	listParams := repository.ListTasksParams{Page: page, Size: size}
+	taskList, err := h.repo.GetAll(listParams)
+
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+
+	count, err := h.repo.Count(listParams)
+
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, httpx.PaginatedResponse[models.Task]{
+		Data:       taskList,
+		Page:       page,
+		Size:       size,
+		Total:      count,
+		TotalPages: (count + size - 1) / size,
+	})
 }

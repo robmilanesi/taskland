@@ -1,0 +1,287 @@
+diff --git i/cmd/server/main.go w/cmd/server/main.go
+index 1f32eaf..e28bd16 100644
+--- i/cmd/server/main.go
++++ w/cmd/server/main.go
+@@ -18,6 +18,7 @@ func main() {
+ 
+ 	mux := http.NewServeMux()
+ 	mux.HandleFunc("GET /api/v1/tasks/{id}", taskHandler.GetTask)
++	mux.HandleFunc("GET /api/v1/tasks", taskHandler.GetAllTasks)
+ 
+ 	log.Println("server avviato su :8080")
+ 	log.Fatal(http.ListenAndServe(":8080", mux))
+diff --git i/internal/api/task_handler.go w/internal/api/task_handler.go
+index af53988..a2e8549 100644
+--- i/internal/api/task_handler.go
++++ w/internal/api/task_handler.go
+@@ -6,6 +6,7 @@ import (
+ 	"net/http"
+ 
+ 	"github.com/robmilanesi/taskland/internal/httpx"
++	"github.com/robmilanesi/taskland/internal/models"
+ 	"github.com/robmilanesi/taskland/internal/repository"
+ )
+ 
+@@ -27,9 +28,35 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	if err != nil {
+-		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
++		httpx.WriteISE(w)
+ 		return
+ 	}
+ 
+ 	httpx.WriteJSON(w, http.StatusOK, task)
+ }
++
++func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
++	page, size := httpx.ParsePagination(r)
++	listParams := repository.ListTasksParams{Page: page, Size: size}
++	taskList, err := h.repo.GetAll(listParams)
++
++	if err != nil {
++		httpx.WriteISE(w)
++		return
++	}
++
++	count, err := h.repo.Count(listParams)
++
++	if err != nil {
++		httpx.WriteISE(w)
++		return
++	}
++
++	httpx.WriteJSON(w, http.StatusOK, httpx.PaginatedResponse[models.Task]{
++		Data:       taskList,
++		Page:       page,
++		Size:       size,
++		Total:      count,
++		TotalPages: (count + size - 1) / size,
++	})
++}
+diff --git i/internal/httpx/json.go w/internal/httpx/json.go
+index fba57be..505c0b1 100644
+--- i/internal/httpx/json.go
++++ w/internal/httpx/json.go
+@@ -22,3 +22,7 @@ func WriteJSON(w http.ResponseWriter, status int, data any) {
+ func WriteError(w http.ResponseWriter, status int, message string) {
+ 	WriteJSON(w, status, ErrorResponse{Error: message})
+ }
++
++func WriteISE(w http.ResponseWriter) {
++	WriteError(w, http.StatusInternalServerError, "internal server error")
++}
+diff --git i/internal/repository/memory_task_repo.go w/internal/repository/memory_task_repo.go
+index babd169..015e4b1 100644
+--- i/internal/repository/memory_task_repo.go
++++ w/internal/repository/memory_task_repo.go
+@@ -1,6 +1,10 @@
+ package repository
+ 
+ import (
++	"cmp"
++	"maps"
++	"slices"
++
+ 	"github.com/robmilanesi/taskland/internal/models"
+ )
+ 
+@@ -21,3 +25,35 @@ func (r *inMemoryTaskRepository) GetByID(id string) (models.Task, error) {
+ 	}
+ 	return task, nil
+ }
++
++func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, error) {
++
++	if params.Page <= 0 {
++		params.Page = 1
++	}
++
++	if params.Size <= 0 {
++		params.Size = 20
++	}
++
++	taskList := slices.Collect(maps.Values(r.tasks))
++	slices.SortFunc(taskList, func(a, b models.Task) int {
++		return cmp.Compare(a.ID, b.ID)
++	})
++
++	offset := (params.Page - 1) * params.Size
++	if offset >= len(taskList) {
++		return []models.Task{}, nil
++	}
++
++	end := offset + params.Size
++	if end > len(taskList) {
++		end = len(taskList)
++	}
++
++	return taskList[offset:end], nil
++}
++
++func (r *inMemoryTaskRepository) Count(params ListTasksParams) (int, error) {
++	return len(r.tasks), nil
++}
+diff --git i/internal/repository/memory_task_repo_test.go w/internal/repository/memory_task_repo_test.go
+index 404902c..d996a53 100644
+--- i/internal/repository/memory_task_repo_test.go
++++ w/internal/repository/memory_task_repo_test.go
+@@ -2,31 +2,123 @@ package repository
+ 
+ import (
+ 	"errors"
++	"strconv"
+ 	"testing"
+ 
+ 	"github.com/robmilanesi/taskland/internal/models"
+ )
+ 
+ func TestInMemoryTaskRepo_GetByID_NotFound(t *testing.T) {
+-    repo := newInMemoryTaskRepo()
++	repo := newInMemoryTaskRepo()
+ 
+-    _, err := repo.GetByID("nonexistent")
++	_, err := repo.GetByID("nonexistent")
+ 
+-    if !errors.Is(err, ErrTaskNotFound) {
+-        t.Errorf("expected ErrTaskNotFound, got %v", err)
+-    }
++	if !errors.Is(err, ErrTaskNotFound) {
++		t.Errorf("expected ErrTaskNotFound, got %v", err)
++	}
+ }
+ 
+ func TestInMemoryTaskRepo_GetByID_Found(t *testing.T) {
+-    repo := newInMemoryTaskRepo()
++	repo := newInMemoryTaskRepo()
+ 	repo.tasks["1"] = models.Task{ID: "1", Title: "Test"}
+ 
+-    task, err := repo.GetByID("1")
++	task, err := repo.GetByID("1")
+ 
+-    if err != nil {
+-        t.Fatalf("expected no error, got %v", err)
+-    }
+-    if task.ID != "1" {
+-        t.Errorf("expected task ID '1', got %q", task.ID)
+-    }
+-}
+\ No newline at end of file
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if task.ID != "1" {
++		t.Errorf("expected task ID '1', got %q", task.ID)
++	}
++}
++
++func TestInMemoryTaskRepo_GetAll_ZeroPage_DefaultsToPageOne(t *testing.T) {
++	repo := newInMemoryTaskRepo()
++	repo.tasks["1"] = models.Task{ID: "1", Title: "Uno"}
++
++	taskList, err := repo.GetAll(ListTasksParams{Page: 0, Size: 20})
++
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if len(taskList) != 1 {
++		t.Errorf("expected page=0 to default to page 1, got %d tasks", len(taskList))
++	}
++}
++
++func TestInMemoryTaskRepo_GetAll_Empty(t *testing.T) {
++	repo := newInMemoryTaskRepo()
++
++	taskList, err := repo.GetAll(ListTasksParams{})
++
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if len(taskList) != 0 {
++		t.Errorf("expected tasks to be empty, got %d tasks", len(taskList))
++	}
++
++}
++
++func TestInMemoryTaskRepo_GetAll_ZeroSize(t *testing.T) {
++	repo := newInMemoryTaskRepo()
++
++	taskList, err := repo.GetAll(ListTasksParams{Size: 0})
++
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if len(taskList) != 0 {
++		t.Errorf("expected tasks to be empty, got %d tasks", len(taskList))
++	}
++
++}
++
++func TestInMemoryTaskRepo_GetAll_DefaultSort(t *testing.T) {
++	repo := newInMemoryTaskRepo()
++	repo.tasks["1"] = models.Task{ID: "1", Title: "Uno"}
++	repo.tasks["2"] = models.Task{ID: "2", Title: "Due"}
++	repo.tasks["3"] = models.Task{ID: "3", Title: "Tre"}
++	repo.tasks["4"] = models.Task{ID: "4", Title: "Quattro"}
++	repo.tasks["5"] = models.Task{ID: "5", Title: "Cinque"}
++
++	taskList, err := repo.GetAll(ListTasksParams{Page: 1, Size: 20})
++	expectedLen := 5
++
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if len(taskList) != expectedLen {
++		t.Errorf("expected tasks to be %d, got %d", expectedLen, len(taskList))
++	}
++
++	for i := range expectedLen {
++		index := strconv.Itoa(i + 1)
++		if taskList[i].ID != index {
++			t.Errorf("expected first task to be with id '%s', got '%s' instead", index, taskList[i].ID)
++		}
++	}
++
++}
++
++func TestInMemoryTaskRepo_GetAll_Pagination(t *testing.T) {
++	repo := newInMemoryTaskRepo()
++	repo.tasks["1"] = models.Task{ID: "1", Title: "Uno"}
++	repo.tasks["2"] = models.Task{ID: "2", Title: "Due"}
++	repo.tasks["3"] = models.Task{ID: "3", Title: "Tre"}
++	repo.tasks["4"] = models.Task{ID: "4", Title: "Quattro"}
++	repo.tasks["5"] = models.Task{ID: "5", Title: "Cinque"}
++
++	taskList, err := repo.GetAll(ListTasksParams{Page: 3, Size: 1})
++	expectedLen := 1
++
++	if err != nil {
++		t.Fatalf("expected no error, got %v", err)
++	}
++	if len(taskList) != expectedLen {
++		t.Errorf("expected tasks to be %d, got %d", expectedLen, len(taskList))
++	}
++	if taskList[0].ID != "3" {
++		t.Errorf("expected to filter for task 3, got %s", taskList[0].ID)
++	}
++}
+diff --git i/internal/repository/task_repo.go w/internal/repository/task_repo.go
+index 1a98495..7008930 100644
+--- i/internal/repository/task_repo.go
++++ w/internal/repository/task_repo.go
+@@ -15,8 +15,15 @@ const (
+ 	TaskRepoDatabase
+ )
+ 
++type ListTasksParams struct {
++	Page int
++	Size int
++}
++
+ type TaskRepository interface {
+ 	GetByID(string) (models.Task, error)
++	GetAll(ListTasksParams) ([]models.Task, error)
++	Count(ListTasksParams) (int, error)
+ }
+ 
+ func NewTaskRepository(taskRepoType TaskRepositoryType) (TaskRepository, error) {
