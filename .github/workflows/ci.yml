@@ -61,6 +61,23 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+      - name: extract coverage percentage
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print substr($3, 1, length($3)-1)}')
+          echo "COVERAGE_PERCENT=$COVERAGE" >> "$GITHUB_ENV"
+      - name: update coverage badge gist
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: schneegans/dynamic-badges-action@v1.9.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: "91679ad8a726a68141479190594bc9cc"
+          filename: taskland-coverage.json
+          label: coverage
+          message: ${{ env.COVERAGE_PERCENT }}%
+          valColorRange: ${{ env.COVERAGE_PERCENT }}
+          maxColorRange: 100
+          minColorRange: 0
 
   govulncheck:
     name: govulncheck
