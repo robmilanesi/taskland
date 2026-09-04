@@ -1,5 +1,6 @@
 # Taskland
 ![CI](https://github.com/robmilanesi/taskland/actions/workflows/ci.yml/badge.svg)
+![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/robmilanesi/91679ad8a726a68141479190594bc9cc/raw/taskland-coverage.json)
 
 A task management application, yep another one!
 
