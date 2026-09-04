@@ -1,4 +1,6 @@
 # Taskland
+![CI](https://github.com/robmilanesi/taskland/actions/workflows/ci.yml/badge.svg)
+
 A task management application, yep another one!
 
 # Features
