@@ -66,3 +66,12 @@ func (r *inMemoryTaskRepository) Create(task models.Task) (models.Task, error) {
 	r.tasks[task.ID.String()] = task
 	return task, nil
 }
+
+func (r *inMemoryTaskRepository) Delete(id string) (models.Task, error) {
+	task, ok := r.tasks[id]
+	if !ok {
+		return models.Task{}, newErrTaskNotFound(id)
+	}
+	delete(r.tasks, id)
+	return task, nil
+}

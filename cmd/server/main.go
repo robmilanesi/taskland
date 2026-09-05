@@ -22,6 +22,7 @@ func main() {
 	mux.HandleFunc("GET /api/v1/tasks/{id}", taskHandler.GetTask)
 	mux.HandleFunc("GET /api/v1/tasks", taskHandler.GetAllTasks)
 	mux.HandleFunc("POST /api/v1/tasks", taskHandler.Create)
+	mux.HandleFunc("DELETE /api/v1/tasks", taskHandler.Delete)
 
 	server := &http.Server{
 		Addr:              ":8080",

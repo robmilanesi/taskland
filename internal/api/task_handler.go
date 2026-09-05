@@ -85,3 +85,20 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/api/v1/tasks/"+task.ID.String())
 	httpx.WriteJSON(w, http.StatusCreated, task)
 }
+
+// Delete handles DELETE /api/v1/tasks/{id}.
+func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	_, err := h.repo.Delete(id)
+
+	if errors.Is(err, repository.ErrTaskNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

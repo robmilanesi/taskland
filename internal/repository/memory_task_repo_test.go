@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +157,120 @@ func TestInMemoryTaskRepo_Create_Empty(t *testing.T) {
 
 	if task.CreatedAt.IsZero() {
 		t.Error("expected creation date to be populated, zero value got instead")
+	}
+}
+
+func TestInMemoryTaskREpo_Delete_NotFound(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	repo.tasks["123"] = models.Task{}
+
+	tests := []struct {
+		name       string
+		idToDelete string
+	}{
+		{"empty-string", ""},
+		{"uuid-not-present", uuid.New().String()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := repo.Delete(tt.idToDelete)
+			if err == nil {
+				t.Errorf("expected error, got none")
+			}
+			if !errors.Is(err, ErrTaskNotFound) {
+				t.Errorf("expected error to be ErrTaskNotFound, got %v", err)
+			}
+
+			if len(repo.tasks) != 1 {
+				t.Errorf("length of tasks should not change, expected 1 got %d", len(repo.tasks))
+			}
+		})
+	}
+}
+
+func TestInMemoryTaskREpo_Delete(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	uuid := uuid.New()
+	taskToDelete := models.Task{ID: uuid, Title: "deleteme"}
+	repo.tasks[uuid.String()] = models.Task{ID: uuid, Title: "deleteme"}
+
+	task, err := repo.Delete(uuid.String())
+
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	if taskToDelete.ID != task.ID {
+		t.Errorf("expected = %#v, got %#v", taskToDelete.ID, task.ID)
+	}
+}
+
+func TestInMemoryTaskRepo_Delete_RemovesTask(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	id := uuid.New()
+	stored := models.Task{ID: id, Title: "deleteme", CreatedAt: time.Now()}
+	repo.tasks[id.String()] = stored
+
+	got, err := repo.Delete(id.String())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.ID != stored.ID || got.Title != stored.Title {
+		t.Errorf("returned task = %+v, want %+v", got, stored)
+	}
+
+	if _, err := repo.GetByID(id.String()); !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected task to be gone, GetByID returned %v", err)
+	}
+	if n, _ := repo.Count(ListTasksParams{}); n != 0 {
+		t.Errorf("expected Count 0 after delete, got %d", n)
+	}
+}
+
+func TestInMemoryTaskRepo_Delete_LeavesOtherTasks(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	ids := make([]uuid.UUID, 3)
+	for i := range ids {
+		id := uuid.New()
+		ids[i] = id
+		repo.tasks[id.String()] = models.Task{ID: id, Title: "t"}
+	}
+
+	if _, err := repo.Delete(ids[1].String()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if n, _ := repo.Count(ListTasksParams{}); n != 2 {
+		t.Errorf("expected Count 2 after deleting one of three, got %d", n)
+	}
+	for _, keep := range []uuid.UUID{ids[0], ids[2]} {
+		if _, err := repo.GetByID(keep.String()); err != nil {
+			t.Errorf("expected %s to survive the delete, got %v", keep, err)
+		}
+	}
+}
+
+func TestInMemoryTaskRepo_Delete_Twice(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	id := uuid.New()
+	repo.tasks[id.String()] = models.Task{ID: id}
+
+	if _, err := repo.Delete(id.String()); err != nil {
+		t.Fatalf("first delete: expected no error, got %v", err)
+	}
+	if _, err := repo.Delete(id.String()); !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("second delete: expected ErrTaskNotFound, got %v", err)
+	}
+}
+
+func TestInMemoryTaskRepo_Delete_NotFound_ErrorMentionsRequestedID(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+
+	_, err := repo.Delete("task-42")
+	if err == nil {
+		t.Fatal("expected error, got none")
+	}
+	if !strings.Contains(err.Error(), "task-42") {
+		t.Errorf("expected error to mention the requested id, got %q", err.Error())
 	}
 }
