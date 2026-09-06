@@ -75,3 +75,23 @@ func (r *inMemoryTaskRepository) Delete(id string) (models.Task, error) {
 	delete(r.tasks, id)
 	return task, nil
 }
+
+func (r *inMemoryTaskRepository) Update(task models.Task) (models.Task, error) {
+	savedTask, err := r.GetByID(task.ID.String())
+	if err != nil {
+		return models.Task{}, err
+	}
+
+	savedTask.Title = task.Title
+	savedTask.Description = task.Description
+	if !savedTask.Completed && task.Completed {
+		savedTask.Completed = task.Completed
+		savedTask.CompletedAt = time.Now()
+	}
+	savedTask.Priority = task.Priority
+	savedTask.DueDate = task.DueDate
+	savedTask.UpdatedAt = time.Now()
+
+	r.tasks[savedTask.ID.String()] = savedTask
+	return savedTask, nil
+}

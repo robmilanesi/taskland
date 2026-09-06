@@ -29,6 +29,7 @@ type TaskRepository interface {
 	GetAll(ListTasksParams) ([]models.Task, error)
 	Count(ListTasksParams) (int, error)
 	Create(models.Task) (models.Task, error)
+	Update(models.Task) (models.Task, error)
 	Delete(string) (models.Task, error)
 }
 

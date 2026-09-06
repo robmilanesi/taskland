@@ -274,3 +274,185 @@ func TestInMemoryTaskRepo_Delete_NotFound_ErrorMentionsRequestedID(t *testing.T)
 		t.Errorf("expected error to mention the requested id, got %q", err.Error())
 	}
 }
+func TestInMemoryTaskRepo_Update_NotFound(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	updateTask := models.Task{ID: uuid.New()}
+	_, err := repo.Update(updateTask)
+	if err == nil {
+		t.Fatal("expected error, got none")
+	}
+
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound got: %#v instead", err)
+	}
+
+	if !strings.Contains(err.Error(), updateTask.ID.String()) {
+		t.Errorf("expected error to mention the requested id, got %q", err.Error())
+	}
+}
+
+func TestInMemoryTaskRepo_Update_CreatedAtNotChanged(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	storedTask := models.Task{ID: uuid.New(), Title: "saved", CreatedAt: time.Now()}
+	repo.tasks[storedTask.ID.String()] = storedTask
+
+	updateTask := models.Task{
+		ID:        storedTask.ID,
+		Title:     "updated",
+		CreatedAt: time.Now().Add(10 * time.Second),
+	}
+	result, err := repo.Update(updateTask)
+	if err != nil {
+		t.Fatalf("expected no error, got: %#v", err)
+	}
+	persisted := repo.tasks[storedTask.ID.String()]
+
+	if result.Title != updateTask.Title {
+		t.Errorf("expected result title to be %s, got %s", updateTask.Title, result.Title)
+	}
+	if persisted.Title != updateTask.Title {
+		t.Errorf("expected persisted title to be %s, got %s", updateTask.Title, persisted.Title)
+	}
+
+	if !result.CreatedAt.Equal(storedTask.CreatedAt) {
+		t.Errorf("expected result creation date to be unchanged, got %v want %v", result.CreatedAt, storedTask.CreatedAt)
+	}
+	if !persisted.CreatedAt.Equal(storedTask.CreatedAt) {
+		t.Errorf("expected persisted creation date to be unchanged, got %v want %v", persisted.CreatedAt, storedTask.CreatedAt)
+	}
+}
+
+func TestInMemoryTaskRepo_Update_Completed(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	storedTask := models.Task{ID: uuid.New(), Title: "saved", Completed: false}
+	repo.tasks[storedTask.ID.String()] = storedTask
+
+	updateTask := models.Task{
+		ID:        storedTask.ID,
+		Title:     "saved",
+		Completed: true,
+	}
+	result, err := repo.Update(updateTask)
+	if err != nil {
+		t.Fatalf("expected no error, got: %#v", err)
+	}
+	persisted := repo.tasks[storedTask.ID.String()]
+
+	if result.Title != updateTask.Title {
+		t.Errorf("expected result title to be %s, got %s", updateTask.Title, result.Title)
+	}
+	if persisted.Title != updateTask.Title {
+		t.Errorf("expected persisted title to be %s, got %s", updateTask.Title, persisted.Title)
+	}
+
+	if !result.Completed {
+		t.Errorf("expected result completed to be true")
+	}
+	if !persisted.Completed {
+		t.Errorf("expected persisted completed to be true")
+	}
+
+	if result.CompletedAt.IsZero() {
+		t.Errorf("expected result completedAt to be valorized upon completion")
+	}
+	if persisted.CompletedAt.IsZero() {
+		t.Errorf("expected persisted completedAt to be valorized upon completion")
+	}
+}
+
+func TestInMemoryTaskRepo_Update_Full(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	now := time.Now()
+	storedTask := models.Task{
+		ID:        uuid.New(),
+		Title:     "saved",
+		Completed: false,
+		Priority:  models.PriorityLow,
+		DueDate:   now,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repo.tasks[storedTask.ID.String()] = storedTask
+
+	updateTask := models.Task{
+		ID:        storedTask.ID,
+		Title:     "updated",
+		Completed: true,
+		Priority:  models.PriorityNone,
+		DueDate:   now.Add(10 * time.Second),
+		CreatedAt: now.Add(10 * time.Hour),
+		UpdatedAt: now.Add(-10 * time.Hour),
+	}
+	result, err := repo.Update(updateTask)
+	if err != nil {
+		t.Fatalf("expected no error, got: %#v", err)
+	}
+	persisted := repo.tasks[storedTask.ID.String()]
+
+	if result.Title != updateTask.Title {
+		t.Errorf("expected result title to be %s, got %s", updateTask.Title, result.Title)
+	}
+	if persisted.Title != updateTask.Title {
+		t.Errorf("expected persisted title to be %s, got %s", updateTask.Title, persisted.Title)
+	}
+
+	if result.Completed != updateTask.Completed {
+		t.Errorf("expected result completed to be %t, got %t", updateTask.Completed, result.Completed)
+	}
+	if persisted.Completed != updateTask.Completed {
+		t.Errorf("expected persisted completed to be %t, got %t", updateTask.Completed, persisted.Completed)
+	}
+
+	if result.Priority != updateTask.Priority {
+		t.Errorf("expected result priority to be %v, got %v", updateTask.Priority, result.Priority)
+	}
+	if persisted.Priority != updateTask.Priority {
+		t.Errorf("expected persisted priority to be %v, got %v", updateTask.Priority, persisted.Priority)
+	}
+
+	if !result.DueDate.Equal(updateTask.DueDate) {
+		t.Errorf("expected result due date to be %v, got %v", updateTask.DueDate, result.DueDate)
+	}
+	if !persisted.DueDate.Equal(updateTask.DueDate) {
+		t.Errorf("expected persisted due date to be %v, got %v", updateTask.DueDate, persisted.DueDate)
+	}
+
+	if !result.Completed {
+		t.Errorf("expected completed to be true")
+	}
+	if result.CompletedAt.IsZero() {
+		t.Errorf("expected completedAt to be valorized upon completion")
+	}
+}
+
+func TestInMemoryTaskRepo_Update_SetsUpdatedAt(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	past := time.Now().Add(-24 * time.Hour)
+	storedTask := models.Task{
+		ID:        uuid.New(),
+		Title:     "saved",
+		UpdatedAt: past,
+	}
+	repo.tasks[storedTask.ID.String()] = storedTask
+
+	before := time.Now()
+	updateTask := models.Task{
+		ID:        storedTask.ID,
+		Title:     "updated",
+		UpdatedAt: past.Add(-10 * time.Hour),
+	}
+	result, err := repo.Update(updateTask)
+	after := time.Now()
+	if err != nil {
+		t.Fatalf("expected no error, got: %#v", err)
+	}
+
+	if result.UpdatedAt.Before(before) || result.UpdatedAt.After(after) {
+		t.Errorf("expected UpdatedAt to be set to now (between %v and %v), got %v", before, after, result.UpdatedAt)
+	}
+
+	persisted := repo.tasks[storedTask.ID.String()]
+	if !persisted.UpdatedAt.Equal(result.UpdatedAt) {
+		t.Errorf("expected persisted UpdatedAt to match returned result, got %v want %v", persisted.UpdatedAt, result.UpdatedAt)
+	}
+}
