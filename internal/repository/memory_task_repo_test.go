@@ -158,6 +158,10 @@ func TestInMemoryTaskRepo_Create_Empty(t *testing.T) {
 	if task.CreatedAt.IsZero() {
 		t.Error("expected creation date to be populated, zero value got instead")
 	}
+
+	if task.UpdatedAt != task.CreatedAt {
+		t.Error("expected update date to be populated the same as creation date")
+	}
 }
 
 func TestInMemoryTaskREpo_Delete_NotFound(t *testing.T) {

@@ -63,6 +63,7 @@ func (r *inMemoryTaskRepository) Count(_ ListTasksParams) (int, error) {
 func (r *inMemoryTaskRepository) Create(task models.Task) (models.Task, error) {
 	task.ID = uuid.New()
 	task.CreatedAt = time.Now()
+	task.UpdatedAt = task.CreatedAt
 	r.tasks[task.ID.String()] = task
 	return task, nil
 }
