@@ -33,14 +33,21 @@ type TaskRepository interface {
 	Delete(string) (models.Task, error)
 }
 
-// NewTaskRepository builds a TaskRepository of the requested type.
-func NewTaskRepository(taskRepoType TaskRepositoryType) (TaskRepository, error) {
-	switch taskRepoType {
+// Config holds the settings needed to build a TaskRepository.
+type Config struct {
+	Type TaskRepositoryType
+	// DSN is the SQLite file path. It is ignored by TaskRepoInMemory.
+	DSN string
+}
+
+// NewTaskRepository builds a TaskRepository from the given config.
+func NewTaskRepository(cfg Config) (TaskRepository, error) {
+	switch cfg.Type {
 	case TaskRepoInMemory:
 		return newInMemoryTaskRepo(), nil
 	case TaskRepoDatabase:
 		return nil, errors.New("database task repository not yet implemented")
 	default:
-		return nil, fmt.Errorf("unhandled repository type: %d", taskRepoType)
+		return nil, fmt.Errorf("unhandled repository type: %d", cfg.Type)
 	}
 }
