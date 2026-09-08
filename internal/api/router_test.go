@@ -54,6 +54,20 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 			wantStatus: http.StatusCreated,
 		},
 		{
+			name:   "PATCH update task",
+			method: http.MethodPatch,
+			setup: func(t *testing.T, repo repository.TaskRepository) uuid.UUID {
+				task, err := repo.Create(models.Task{ID: uuid.New(), Title: "to update"})
+				if err != nil {
+					t.Fatalf("setup: failed to create task: %v", err)
+				}
+				return task.ID
+			},
+			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
+			body:       `{"title":"updated"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:   "DELETE task",
 			method: http.MethodDelete,
 			setup: func(t *testing.T, repo repository.TaskRepository) uuid.UUID {

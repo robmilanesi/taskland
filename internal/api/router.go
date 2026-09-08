@@ -13,6 +13,7 @@ import (
 //	GET    /api/v1/tasks/{id}  - retrieve a single task by ID
 //	GET    /api/v1/tasks       - retrieve all tasks
 //	POST   /api/v1/tasks       - create a new task
+//	PATCH  /api/v1/tasks/{id}  - partially update a task by ID
 //	DELETE /api/v1/tasks/{id}  - delete a task by ID
 func NewRouter(repo repository.TaskRepository) http.Handler {
 	th := NewTaskHandler(repo)
@@ -20,6 +21,7 @@ func NewRouter(repo repository.TaskRepository) http.Handler {
 	mux.HandleFunc("GET /api/v1/tasks/{id}", th.GetTask)
 	mux.HandleFunc("GET /api/v1/tasks", th.GetAllTasks)
 	mux.HandleFunc("POST /api/v1/tasks", th.Create)
+	mux.HandleFunc("PATCH /api/v1/tasks/{id}", th.Update)
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}", th.Delete)
 	return mux
 }

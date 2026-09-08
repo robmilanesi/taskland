@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -203,5 +204,192 @@ func TestTaskHandler_Delete_MissingPathValue(t *testing.T) {
 	}
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for missing id (current behaviour), got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_OK(t *testing.T) {
+	existing := models.Task{
+		ID:        uuid.New(),
+		Title:     "old",
+		CreatedAt: time.Now().Add(-time.Hour),
+	}
+	var updatedArg models.Task
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) { return existing, nil },
+		updateFn: func(in models.Task) (models.Task, error) {
+			updatedArg = in
+			in.UpdatedAt = time.Now()
+			return in, nil
+		},
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/"+existing.ID.String(),
+		strings.NewReader(`{"title":"  new title  ","completed":true}`))
+	req.SetPathValue("id", existing.ID.String())
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if updatedArg.ID != existing.ID {
+		t.Errorf("expected id preserved, got %s", updatedArg.ID)
+	}
+	if updatedArg.Title != "new title" {
+		t.Errorf("expected trimmed title passed to repo, got %q", updatedArg.Title)
+	}
+	if !updatedArg.Completed {
+		t.Errorf("expected completed=true passed to repo")
+	}
+
+	var body models.Task
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if body.Title != "new title" {
+		t.Errorf("unexpected response title: %q", body.Title)
+	}
+}
+
+func TestTaskHandler_Update_PartialLeavesOtherFields(t *testing.T) {
+	existing := models.Task{
+		ID:          uuid.New(),
+		Title:       "keep",
+		Description: "keep desc",
+		Priority:    models.PriorityHigh,
+	}
+	var updatedArg models.Task
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) { return existing, nil },
+		updateFn:  func(in models.Task) (models.Task, error) { updatedArg = in; return in, nil },
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
+		strings.NewReader(`{"description":"new desc"}`))
+	req.SetPathValue("id", "x")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if updatedArg.Description != "new desc" {
+		t.Errorf("expected description updated, got %q", updatedArg.Description)
+	}
+	if updatedArg.Title != "keep" {
+		t.Errorf("expected title untouched, got %q", updatedArg.Title)
+	}
+	if updatedArg.Priority != models.PriorityHigh {
+		t.Errorf("expected priority untouched, got %v", updatedArg.Priority)
+	}
+}
+
+func TestTaskHandler_Update_NotFound(t *testing.T) {
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) {
+			return models.Task{}, repository.ErrTaskNotFound
+		},
+		updateFn: func(models.Task) (models.Task, error) {
+			t.Fatal("repo.Update must not be called when the task does not exist")
+			return models.Task{}, nil
+		},
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/missing",
+		strings.NewReader(`{"title":"x"}`))
+	req.SetPathValue("id", "missing")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_MalformedJSON(t *testing.T) {
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) {
+			t.Fatal("repo.GetByID must not be called on bad JSON")
+			return models.Task{}, nil
+		},
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
+		strings.NewReader(`{"title":`))
+	req.SetPathValue("id", "x")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_UnknownField(t *testing.T) {
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) {
+			t.Fatal("repo must not be touched on unknown field")
+			return models.Task{}, nil
+		},
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
+		strings.NewReader(`{"nope":1}`))
+	req.SetPathValue("id", "x")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown field, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_BlankTitleRejected(t *testing.T) {
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) {
+			t.Fatal("repo must not be touched when validation fails")
+			return models.Task{}, nil
+		},
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
+		strings.NewReader(`{"title":"   "}`))
+	req.SetPathValue("id", "x")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for blank title, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_RepoError(t *testing.T) {
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) { return models.Task{ID: uuid.New()}, nil },
+		updateFn:  func(models.Task) (models.Task, error) { return models.Task{}, errors.New("boom") },
+	}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
+		strings.NewReader(`{"title":"x"}`))
+	req.SetPathValue("id", "x")
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 }

@@ -102,3 +102,36 @@ func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// Update handles PATCH /api/v1/tasks/{id}.
+func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var req updateTaskRequest
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	if err := req.validate(); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	id := r.PathValue("id")
+	task, err := h.repo.GetByID(id)
+	if errors.Is(err, repository.ErrTaskNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+
+	req.applyTo(&task)
+
+	updated, err := h.repo.Update(task)
+	if err != nil {
+		httpx.WriteISE(w)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, updated)
+}

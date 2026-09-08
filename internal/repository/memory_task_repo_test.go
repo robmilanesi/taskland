@@ -460,3 +460,74 @@ func TestInMemoryTaskRepo_Update_SetsUpdatedAt(t *testing.T) {
 		t.Errorf("expected persisted UpdatedAt to match returned result, got %v want %v", persisted.UpdatedAt, result.UpdatedAt)
 	}
 }
+
+func TestInMemoryTaskRepo_Update_Uncomplete(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	id := uuid.New()
+	repo.tasks[id.String()] = models.Task{
+		ID:          id,
+		Title:       "done",
+		Completed:   true,
+		CompletedAt: time.Now().Add(-time.Hour),
+	}
+
+	result, err := repo.Update(models.Task{ID: id, Title: "done", Completed: false})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.Completed {
+		t.Error("expected task to be uncompleted")
+	}
+	if !result.CompletedAt.IsZero() {
+		t.Errorf("expected completedAt to be cleared, got %v", result.CompletedAt)
+	}
+	if persisted := repo.tasks[id.String()]; persisted.Completed || !persisted.CompletedAt.IsZero() {
+		t.Errorf("persisted task still looks completed: %+v", persisted)
+	}
+}
+
+func TestInMemoryTaskRepo_Update_StaysCompleted_KeepsCompletedAt(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	id := uuid.New()
+	completedAt := time.Now().Add(-time.Hour)
+	repo.tasks[id.String()] = models.Task{
+		ID:          id,
+		Title:       "done",
+		Completed:   true,
+		CompletedAt: completedAt,
+	}
+
+	result, err := repo.Update(models.Task{ID: id, Title: "done again", Completed: true})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !result.CompletedAt.Equal(completedAt) {
+		t.Errorf("expected original completedAt %v to be kept, got %v", completedAt, result.CompletedAt)
+	}
+}
+
+func TestInMemoryTaskRepo_Update_LeavesOtherTasks(t *testing.T) {
+	repo := newInMemoryTaskRepo()
+	past := time.Now().Add(-24 * time.Hour)
+	other := models.Task{ID: uuid.New(), Title: "keep me", CreatedAt: past, UpdatedAt: past}
+	target := models.Task{ID: uuid.New(), Title: "change me", CreatedAt: past, UpdatedAt: past}
+	repo.tasks[other.ID.String()] = other
+	repo.tasks[target.ID.String()] = target
+
+	if _, err := repo.Update(models.Task{ID: target.ID, Title: "changed"}); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	got := repo.tasks[other.ID.String()]
+	if got.Title != other.Title {
+		t.Errorf("unrelated task title changed to %q", got.Title)
+	}
+	if !got.UpdatedAt.Equal(other.UpdatedAt) {
+		t.Errorf("unrelated task UpdatedAt changed to %v", got.UpdatedAt)
+	}
+	if n, _ := repo.Count(ListTasksParams{}); n != 2 {
+		t.Errorf("expected Count to stay 2, got %d", n)
+	}
+}
