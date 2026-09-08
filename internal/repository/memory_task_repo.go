@@ -87,11 +87,12 @@ func (r *inMemoryTaskRepository) Update(task models.Task) (models.Task, error) {
 	savedTask.Description = task.Description
 	switch {
 	case !savedTask.Completed && task.Completed:
+		now := time.Now()
 		savedTask.Completed = true
-		savedTask.CompletedAt = time.Now()
+		savedTask.CompletedAt = &now
 	case savedTask.Completed && !task.Completed:
 		savedTask.Completed = false
-		savedTask.CompletedAt = time.Time{}
+		savedTask.CompletedAt = nil
 	}
 	savedTask.Priority = task.Priority
 	savedTask.DueDate = task.DueDate

@@ -61,7 +61,8 @@ func (dto updateTaskRequest) applyTo(t *models.Task) {
 	}
 
 	if dto.DueDate != nil {
-		t.DueDate = *dto.DueDate
+		due := *dto.DueDate
+		t.DueDate = &due
 	}
 
 }

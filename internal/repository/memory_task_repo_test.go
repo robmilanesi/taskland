@@ -356,10 +356,10 @@ func TestInMemoryTaskRepo_Update_Completed(t *testing.T) {
 		t.Errorf("expected persisted completed to be true")
 	}
 
-	if result.CompletedAt.IsZero() {
+	if result.CompletedAt == nil {
 		t.Errorf("expected result completedAt to be valorized upon completion")
 	}
-	if persisted.CompletedAt.IsZero() {
+	if persisted.CompletedAt == nil {
 		t.Errorf("expected persisted completedAt to be valorized upon completion")
 	}
 }
@@ -367,12 +367,14 @@ func TestInMemoryTaskRepo_Update_Completed(t *testing.T) {
 func TestInMemoryTaskRepo_Update_Full(t *testing.T) {
 	repo := newInMemoryTaskRepo()
 	now := time.Now()
+	dueStored := now
+	dueUpdated := now.Add(10 * time.Second)
 	storedTask := models.Task{
 		ID:        uuid.New(),
 		Title:     "saved",
 		Completed: false,
 		Priority:  models.PriorityLow,
-		DueDate:   now,
+		DueDate:   &dueStored,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -383,7 +385,7 @@ func TestInMemoryTaskRepo_Update_Full(t *testing.T) {
 		Title:     "updated",
 		Completed: true,
 		Priority:  models.PriorityNone,
-		DueDate:   now.Add(10 * time.Second),
+		DueDate:   &dueUpdated,
 		CreatedAt: now.Add(10 * time.Hour),
 		UpdatedAt: now.Add(-10 * time.Hour),
 	}
@@ -414,17 +416,17 @@ func TestInMemoryTaskRepo_Update_Full(t *testing.T) {
 		t.Errorf("expected persisted priority to be %v, got %v", updateTask.Priority, persisted.Priority)
 	}
 
-	if !result.DueDate.Equal(updateTask.DueDate) {
+	if result.DueDate == nil || !result.DueDate.Equal(*updateTask.DueDate) {
 		t.Errorf("expected result due date to be %v, got %v", updateTask.DueDate, result.DueDate)
 	}
-	if !persisted.DueDate.Equal(updateTask.DueDate) {
+	if persisted.DueDate == nil || !persisted.DueDate.Equal(*updateTask.DueDate) {
 		t.Errorf("expected persisted due date to be %v, got %v", updateTask.DueDate, persisted.DueDate)
 	}
 
 	if !result.Completed {
 		t.Errorf("expected completed to be true")
 	}
-	if result.CompletedAt.IsZero() {
+	if result.CompletedAt == nil {
 		t.Errorf("expected completedAt to be valorized upon completion")
 	}
 }
@@ -464,11 +466,12 @@ func TestInMemoryTaskRepo_Update_SetsUpdatedAt(t *testing.T) {
 func TestInMemoryTaskRepo_Update_Uncomplete(t *testing.T) {
 	repo := newInMemoryTaskRepo()
 	id := uuid.New()
+	completedAt := time.Now().Add(-time.Hour)
 	repo.tasks[id.String()] = models.Task{
 		ID:          id,
 		Title:       "done",
 		Completed:   true,
-		CompletedAt: time.Now().Add(-time.Hour),
+		CompletedAt: &completedAt,
 	}
 
 	result, err := repo.Update(models.Task{ID: id, Title: "done", Completed: false})
@@ -479,10 +482,10 @@ func TestInMemoryTaskRepo_Update_Uncomplete(t *testing.T) {
 	if result.Completed {
 		t.Error("expected task to be uncompleted")
 	}
-	if !result.CompletedAt.IsZero() {
+	if result.CompletedAt != nil {
 		t.Errorf("expected completedAt to be cleared, got %v", result.CompletedAt)
 	}
-	if persisted := repo.tasks[id.String()]; persisted.Completed || !persisted.CompletedAt.IsZero() {
+	if persisted := repo.tasks[id.String()]; persisted.Completed || persisted.CompletedAt != nil {
 		t.Errorf("persisted task still looks completed: %+v", persisted)
 	}
 }
@@ -495,7 +498,7 @@ func TestInMemoryTaskRepo_Update_StaysCompleted_KeepsCompletedAt(t *testing.T) {
 		ID:          id,
 		Title:       "done",
 		Completed:   true,
-		CompletedAt: completedAt,
+		CompletedAt: &completedAt,
 	}
 
 	result, err := repo.Update(models.Task{ID: id, Title: "done again", Completed: true})
@@ -503,7 +506,7 @@ func TestInMemoryTaskRepo_Update_StaysCompleted_KeepsCompletedAt(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if !result.CompletedAt.Equal(completedAt) {
+	if result.CompletedAt == nil || !result.CompletedAt.Equal(completedAt) {
 		t.Errorf("expected original completedAt %v to be kept, got %v", completedAt, result.CompletedAt)
 	}
 }
