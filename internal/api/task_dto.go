@@ -9,20 +9,33 @@ import (
 )
 
 type createTaskRequest struct {
-	Title string `json:"title"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	Priority    models.Priority `json:"priority"`
+	DueDate     *time.Time      `json:"due_date"`
 }
 
 func (req createTaskRequest) validate() error {
 	if strings.TrimSpace(req.Title) == "" {
 		return errors.New("title is required")
 	}
+	if req.Priority < models.PriorityNone || req.Priority > models.PriorityHigh {
+		return errors.New("priority out of range")
+	}
 	return nil
 }
 
 func (req createTaskRequest) toModel() models.Task {
-	return models.Task{
-		Title: strings.TrimSpace(req.Title),
+	m := models.Task{
+		Title:       strings.TrimSpace(req.Title),
+		Description: req.Description,
+		Priority:    req.Priority,
 	}
+	if req.DueDate != nil {
+		due := *req.DueDate
+		m.DueDate = &due
+	}
+	return m
 }
 
 type updateTaskRequest struct {

@@ -119,6 +119,75 @@ func TestTaskHandler_Create_RepoError(t *testing.T) {
 	}
 }
 
+func TestTaskHandler_Create_WithAllFields(t *testing.T) {
+	var passed models.Task
+	repo := stubTaskRepo{createFn: func(in models.Task) (models.Task, error) {
+		passed = in
+		in.ID = uuid.New()
+		return in, nil
+	}}
+	h := NewTaskHandler(repo)
+
+	due := time.Date(2030, 1, 2, 15, 4, 5, 0, time.UTC)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"  write tests  ","description":"the full set","priority":3,"due_date":"2030-01-02T15:04:05Z"}`))
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	if passed.Title != "write tests" {
+		t.Errorf("expected trimmed title, got %q", passed.Title)
+	}
+	if passed.Description != "the full set" {
+		t.Errorf("unexpected description: %q", passed.Description)
+	}
+	if passed.Priority != models.PriorityHigh {
+		t.Errorf("expected priority %v, got %v", models.PriorityHigh, passed.Priority)
+	}
+	if passed.DueDate == nil || !passed.DueDate.Equal(due) {
+		t.Errorf("expected due date %v, got %v", due, passed.DueDate)
+	}
+}
+
+func TestTaskHandler_Create_PriorityOutOfRange(t *testing.T) {
+	repo := stubTaskRepo{createFn: func(models.Task) (models.Task, error) {
+		t.Fatal("repo.Create must not be called on invalid priority")
+		return models.Task{}, nil
+	}}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok","priority":9}`))
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Create_MalformedDueDate(t *testing.T) {
+	repo := stubTaskRepo{createFn: func(models.Task) (models.Task, error) {
+		t.Fatal("repo.Create must not be called on unparseable due_date")
+		return models.Task{}, nil
+	}}
+	h := NewTaskHandler(repo)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok","due_date":"next tuesday"}`))
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unparseable due_date, got %d", rec.Code)
+	}
+}
+
 func TestTaskHandler_Delete_NoContent(t *testing.T) {
 	var gotID string
 	repo := stubTaskRepo{deleteFn: func(id string) (models.Task, error) {
