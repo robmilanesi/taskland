@@ -5,14 +5,28 @@
 A task management application, yep another one!
 
 # Features
-- [ ] Task management
+- [x] Task management
 - [ ] Support for projects
-- [ ] Priority
+- [ ] Priority — *set & validated on create/update; no sorting or filtering yet*
 - [ ] Timing set based on time word expressions (Tomorrow, last week, etc...)
 - [ ] Kanban view
 - [ ] Calendar view
 - [ ] Today view
 - [ ] Gamification
+
+# API
+
+Base path: `/api/v1`
+
+| Method   | Path          | Description |
+|----------|---------------|-------------|
+| `GET`    | `/tasks`      | List tasks, paginated (`?page=`, `?size=`, defaults `1` / `20`) |
+| `POST`   | `/tasks`      | Create a task. Body: `title` (required), `description`, `priority` (`0`–`3`), `due_date` (RFC 3339) |
+| `GET`    | `/tasks/{id}` | Fetch a single task |
+| `PATCH`  | `/tasks/{id}` | Partial update. Any of `title`, `description`, `completed`, `priority`, `due_date` |
+| `DELETE` | `/tasks/{id}` | Delete a task (`204 No Content`) |
+
+Errors are returned as `{"error": "..."}` with the matching HTTP status.
 
 # Development
 
