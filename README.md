@@ -28,6 +28,20 @@ Base path: `/api/v1`
 
 Errors are returned as `{"error": "..."}` with the matching HTTP status.
 
+# Storage
+
+Tasks are persisted in a local SQLite database via a pure-Go driver (no CGO).
+
+- `TASKLAND_DB_PATH` selects the database file; it defaults to `taskland.db`
+  in the working directory.
+- The schema is created and kept up to date automatically on startup
+  (embedded goose migrations) — there is no manual migration step.
+- SQLite runs in WAL mode, so `<db>-wal` and `<db>-shm` files appear next to
+  the database file.
+
+The test suite runs against a throwaway database under a temp directory, so
+`go test` needs no external services.
+
 # Development
 
 Tooling is pinned with [mise](https://mise.jdx.dev):
