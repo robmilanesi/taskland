@@ -2,8 +2,14 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/robmilanesi/taskland/internal/api"
@@ -12,9 +18,18 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	if err := run(); err != nil {
+		slog.Error("server exited with error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		return fmt.Errorf("config: %w", err)
 	}
 
 	repo, err := repository.NewTaskRepository(repository.Config{
@@ -22,21 +37,45 @@ func main() {
 		DSN:  cfg.DBPath,
 	})
 	if err != nil {
-		log.Fatalf("failed to initialize task repository: %v", err)
+		return fmt.Errorf("init task repository: %w", err)
 	}
-	log.Println("task repository: sqlite")
-
-	router := api.NewRouter(repo)
+	slog.Info("task repository ready", "kind", "sqlite")
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           router,
+		Handler:           api.NewRouter(repo),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Println("starting server")
-	log.Fatal(server.ListenAndServe())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("listening", "addr", cfg.Addr)
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("listen: %w", err)
+	case <-ctx.Done():
+		// A second signal from here on terminates immediately.
+		stop()
+		slog.Info("shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+		slog.Info("server stopped")
+		return nil
+	}
 }

@@ -3,7 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -65,9 +65,9 @@ func TestWriteJSON_EncodesAndWritesStatus(t *testing.T) {
 
 func TestWriteJSON_EncodeError_LogsAndStillWritesStatus(t *testing.T) {
 	var logOutput strings.Builder
-	origOutput := log.Writer()
-	log.SetOutput(&logOutput)
-	defer log.SetOutput(origOutput)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, nil)))
+	defer slog.SetDefault(prev)
 
 	rec := httptest.NewRecorder()
 
