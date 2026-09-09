@@ -32,18 +32,23 @@ func run() error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	repo, err := repository.NewTaskRepository(repository.Config{
+	store, err := repository.NewStore(repository.Config{
 		Type: repository.TaskRepoSQLite,
 		DSN:  cfg.DBPath,
 	})
 	if err != nil {
-		return fmt.Errorf("init task repository: %w", err)
+		return fmt.Errorf("init store: %w", err)
 	}
-	slog.Info("task repository ready", "kind", "sqlite")
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("closing store", "error", err)
+		}
+	}()
+	slog.Info("store ready", "kind", "sqlite")
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(repo),
+		Handler:           api.NewRouter(store.Tasks),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
