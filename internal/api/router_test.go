@@ -96,7 +96,7 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo, err := repository.NewTaskRepository(repository.TaskRepoInMemory)
+			repo, err := repository.NewTaskRepository(repository.Config{Type: repository.TaskRepoInMemory})
 			if err != nil {
 				t.Fatalf("not expected error during task repo initialization: %v", err)
 			}

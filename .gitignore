@@ -7,6 +7,11 @@
 *.out
 coverage.*
 
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
 # lefthook local overrides
 lefthook-local.yml
 

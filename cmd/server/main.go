@@ -12,7 +12,7 @@ import (
 
 func main() {
 
-	repo, err := repository.NewTaskRepository(repository.TaskRepoInMemory)
+	repo, err := repository.NewTaskRepository(repository.Config{Type: repository.TaskRepoInMemory})
 	if err != nil {
 		log.Fatalf("failed to initialize task repository: %v", err)
 	}
