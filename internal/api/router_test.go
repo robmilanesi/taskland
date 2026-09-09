@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
 	"github.com/google/uuid"
 
+	"github.com/robmilanesi/taskland/internal/auth"
 	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
@@ -106,7 +109,8 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 				id = tt.setup(t, store.Tasks)
 			}
 
-			router := NewRouter(store.Tasks)
+			issuer := auth.NewIssuer("router-test-secret-with-enough-length", time.Hour)
+			router := NewRouter(store, issuer)
 
 			path := tt.path(id)
 

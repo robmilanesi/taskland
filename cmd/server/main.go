@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/robmilanesi/taskland/internal/api"
+	"github.com/robmilanesi/taskland/internal/auth"
 	"github.com/robmilanesi/taskland/internal/config"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
@@ -46,9 +47,11 @@ func run() error {
 	}()
 	slog.Info("store ready", "kind", "sqlite")
 
+	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTTTL)
+
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(store.Tasks),
+		Handler:           api.NewRouter(store, issuer),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
