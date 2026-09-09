@@ -3,6 +3,7 @@ module github.com/robmilanesi/taskland
 go 1.27.0
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/pressly/goose/v3 v3.28.0
 	modernc.org/sqlite v1.58.0
