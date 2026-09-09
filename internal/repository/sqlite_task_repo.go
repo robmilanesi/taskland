@@ -20,11 +20,10 @@ const sqlTimeLayout = "2006-01-02T15:04:05.000000000Z"
 
 const taskColumns = "id, title, description, completed, completed_at, priority, due_date, created_at, updated_at"
 
-type sqliteTaskRepository struct {
-	db *sql.DB
-}
-
-func newSQLiteTaskRepo(dsn string) (*sqliteTaskRepository, error) {
+// newSQLiteDB opens the SQLite database at dsn, verifies the connection and
+// applies pending migrations. The returned handle is shared by every SQLite
+// repository and is closed by the owning Store.
+func newSQLiteDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", dsn, err)
@@ -40,12 +39,15 @@ func newSQLiteTaskRepo(dsn string) (*sqliteTaskRepository, error) {
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
 	}
 
-	return &sqliteTaskRepository{db: db}, nil
+	return db, nil
 }
 
-// Close releases the underlying database handle.
-func (r *sqliteTaskRepository) Close() error {
-	return r.db.Close()
+type sqliteTaskRepository struct {
+	db *sql.DB
+}
+
+func newSQLiteTaskRepo(db *sql.DB) *sqliteTaskRepository {
+	return &sqliteTaskRepository{db: db}
 }
 
 func (r *sqliteTaskRepository) GetByID(id string) (models.Task, error) {

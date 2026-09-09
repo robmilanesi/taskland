@@ -62,6 +62,22 @@ func TestRunMigrations_CreatesTasksTable(t *testing.T) {
 	}
 }
 
+func TestRunMigrations_CreatesUsersTable(t *testing.T) {
+	db := openTestDB(t)
+
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM users").Scan(&n); err != nil {
+		t.Fatalf("querying users after migration: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected empty users table, got %d rows", n)
+	}
+}
+
 func TestRunMigrations_Idempotent(t *testing.T) {
 	db := openTestDB(t)
 

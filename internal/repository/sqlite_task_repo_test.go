@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"database/sql"
 	"errors"
 	"regexp"
 	"testing"
@@ -11,14 +12,19 @@ import (
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
+func newTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := newSQLiteDB(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("newSQLiteDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
 func newTestSQLiteRepo(t *testing.T) *sqliteTaskRepository {
 	t.Helper()
-	repo, err := newSQLiteTaskRepo(t.TempDir() + "/test.db")
-	if err != nil {
-		t.Fatalf("newSQLiteTaskRepo: %v", err)
-	}
-	t.Cleanup(func() { _ = repo.Close() })
-	return repo
+	return newSQLiteTaskRepo(newTestDB(t))
 }
 
 func TestSQLiteRepo_CreateGetRoundtrip(t *testing.T) {

@@ -96,17 +96,17 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo, err := repository.NewTaskRepository(repository.Config{Type: repository.TaskRepoInMemory})
+			store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
 			if err != nil {
-				t.Fatalf("not expected error during task repo initialization: %v", err)
+				t.Fatalf("not expected error during store initialization: %v", err)
 			}
 
 			var id uuid.UUID
 			if tt.setup != nil {
-				id = tt.setup(t, repo)
+				id = tt.setup(t, store.Tasks)
 			}
 
-			router := NewRouter(repo)
+			router := NewRouter(store.Tasks)
 
 			path := tt.path(id)
 

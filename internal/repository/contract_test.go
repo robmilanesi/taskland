@@ -340,11 +340,6 @@ func TestTaskRepositoryContract_InMemory(t *testing.T) {
 
 func TestTaskRepositoryContract_SQLite(t *testing.T) {
 	testTaskRepositoryContract(t, func(t *testing.T) TaskRepository {
-		repo, err := newSQLiteTaskRepo(t.TempDir() + "/contract.db")
-		if err != nil {
-			t.Fatalf("newSQLiteTaskRepo: %v", err)
-		}
-		t.Cleanup(func() { _ = repo.Close() })
-		return repo
+		return newSQLiteTaskRepo(newTestDB(t))
 	})
 }
