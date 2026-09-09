@@ -2,7 +2,10 @@
 package repository
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/google/uuid"
 
 	"github.com/robmilanesi/taskland/internal/models"
 )
@@ -22,14 +25,16 @@ type ListTasksParams struct {
 	Size int
 }
 
-// TaskRepository is the storage abstraction for tasks.
+// TaskRepository is the storage abstraction for tasks. Every method is scoped to
+// a single owner: rows belonging to other users are invisible, and a lookup for
+// one of them is reported as ErrTaskNotFound.
 type TaskRepository interface {
-	GetByID(string) (models.Task, error)
-	GetAll(ListTasksParams) ([]models.Task, error)
-	Count(ListTasksParams) (int, error)
-	Create(models.Task) (models.Task, error)
-	Update(models.Task) (models.Task, error)
-	Delete(string) (models.Task, error)
+	GetByID(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error)
+	GetAll(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, error)
+	Count(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) (int, error)
+	Create(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error)
+	Update(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error)
+	Delete(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error)
 }
 
 // Config holds the settings needed to build a Store.

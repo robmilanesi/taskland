@@ -28,7 +28,7 @@ func TestTaskHandler_Create_Created(t *testing.T) {
 		strings.NewReader(`{"title":"  Buy milk  "}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", rec.Code)
@@ -60,7 +60,7 @@ func TestTaskHandler_Create_ValidationError(t *testing.T) {
 		strings.NewReader(`{"title":"   "}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -78,7 +78,7 @@ func TestTaskHandler_Create_MalformedJSON(t *testing.T) {
 		strings.NewReader(`{"title":`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -95,7 +95,7 @@ func TestTaskHandler_Create_UnknownField(t *testing.T) {
 		strings.NewReader(`{"title":"ok","done":true}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unknown field (DisallowUnknownFields), got %d", rec.Code)
@@ -112,7 +112,7 @@ func TestTaskHandler_Create_RepoError(t *testing.T) {
 		strings.NewReader(`{"title":"ok"}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
@@ -133,7 +133,7 @@ func TestTaskHandler_Create_WithAllFields(t *testing.T) {
 		strings.NewReader(`{"title":"  write tests  ","description":"the full set","priority":3,"due_date":"2030-01-02T15:04:05Z"}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", rec.Code)
@@ -163,7 +163,7 @@ func TestTaskHandler_Create_PriorityOutOfRange(t *testing.T) {
 		strings.NewReader(`{"title":"ok","priority":9}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -181,7 +181,7 @@ func TestTaskHandler_Create_MalformedDueDate(t *testing.T) {
 		strings.NewReader(`{"title":"ok","due_date":"next tuesday"}`))
 	rec := httptest.NewRecorder()
 
-	h.Create(rec, req)
+	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unparseable due_date, got %d", rec.Code)
@@ -200,7 +200,7 @@ func TestTaskHandler_Delete_NoContent(t *testing.T) {
 	req.SetPathValue("id", "abc")
 	rec := httptest.NewRecorder()
 
-	h.Delete(rec, req)
+	h.Delete(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rec.Code)
@@ -223,7 +223,7 @@ func TestTaskHandler_Delete_NotFound(t *testing.T) {
 	req.SetPathValue("id", "missing")
 	rec := httptest.NewRecorder()
 
-	h.Delete(rec, req)
+	h.Delete(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
@@ -247,7 +247,7 @@ func TestTaskHandler_Delete_RepoError(t *testing.T) {
 	req.SetPathValue("id", "abc")
 	rec := httptest.NewRecorder()
 
-	h.Delete(rec, req)
+	h.Delete(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
@@ -266,7 +266,7 @@ func TestTaskHandler_Delete_MissingPathValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/", nil)
 	rec := httptest.NewRecorder()
 
-	h.Delete(rec, req)
+	h.Delete(rec, withOwner(req, testOwner))
 
 	if gotID != "" {
 		t.Errorf("expected empty id forwarded to repo, got %q", gotID)
@@ -298,7 +298,7 @@ func TestTaskHandler_Update_OK(t *testing.T) {
 	req.SetPathValue("id", existing.ID.String())
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -341,7 +341,7 @@ func TestTaskHandler_Update_PartialLeavesOtherFields(t *testing.T) {
 	req.SetPathValue("id", "x")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -374,7 +374,7 @@ func TestTaskHandler_Update_NotFound(t *testing.T) {
 	req.SetPathValue("id", "missing")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
@@ -395,7 +395,7 @@ func TestTaskHandler_Update_MalformedJSON(t *testing.T) {
 	req.SetPathValue("id", "x")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -416,7 +416,7 @@ func TestTaskHandler_Update_UnknownField(t *testing.T) {
 	req.SetPathValue("id", "x")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unknown field, got %d", rec.Code)
@@ -437,7 +437,7 @@ func TestTaskHandler_Update_BlankTitleRejected(t *testing.T) {
 	req.SetPathValue("id", "x")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for blank title, got %d", rec.Code)
@@ -456,7 +456,7 @@ func TestTaskHandler_Update_RepoError(t *testing.T) {
 	req.SetPathValue("id", "x")
 	rec := httptest.NewRecorder()
 
-	h.Update(rec, req)
+	h.Update(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)

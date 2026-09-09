@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -13,13 +14,17 @@ import (
 
 // testTaskRepositoryContract runs the behavioural checks that every
 // TaskRepository implementation must satisfy. mk must return a fresh, empty
-// repository each time it is called.
+// repository each time it is called. Every check operates as a single owner
+// unless it explicitly creates a second one.
 func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskRepository) {
 	t.Helper()
 
+	ctx := context.Background()
+	owner := uuid.New()
+
 	create := func(t *testing.T, repo TaskRepository, title string) models.Task {
 		t.Helper()
-		task, err := repo.Create(models.Task{Title: title})
+		task, err := repo.Create(ctx, owner, models.Task{Title: title})
 		if err != nil {
 			t.Fatalf("Create(%q): %v", title, err)
 		}
@@ -28,18 +33,18 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 
 	count := func(t *testing.T, repo TaskRepository) int {
 		t.Helper()
-		n, err := repo.Count(ListTasksParams{})
+		n, err := repo.Count(ctx, owner, ListTasksParams{})
 		if err != nil {
 			t.Fatalf("Count: %v", err)
 		}
 		return n
 	}
 
-	t.Run("Create assigns id and equal timestamps", func(t *testing.T) {
+	t.Run("Create assigns id, owner and equal timestamps", func(t *testing.T) {
 		repo := mk(t)
 		before := time.Now().Add(-time.Second)
 
-		task, err := repo.Create(models.Task{Title: "x"})
+		task, err := repo.Create(ctx, owner, models.Task{Title: "x"})
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
@@ -47,6 +52,9 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 
 		if task.ID == uuid.Nil {
 			t.Error("expected a generated id")
+		}
+		if task.OwnerID != owner {
+			t.Errorf("OwnerID = %s, want %s", task.OwnerID, owner)
 		}
 		if task.CreatedAt.Before(before) || task.CreatedAt.After(after) {
 			t.Errorf("CreatedAt %v outside [%v, %v]", task.CreatedAt, before, after)
@@ -60,7 +68,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		due := time.Date(2031, 6, 1, 8, 30, 0, 0, time.UTC)
 
-		created, err := repo.Create(models.Task{
+		created, err := repo.Create(ctx, owner, models.Task{
 			Title:       "roundtrip",
 			Description: "desc",
 			Priority:    models.PriorityHigh,
@@ -70,12 +78,15 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Fatalf("Create: %v", err)
 		}
 
-		got, err := repo.GetByID(created.ID.String())
+		got, err := repo.GetByID(ctx, owner, created.ID.String())
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
 		if got.Title != "roundtrip" || got.Description != "desc" || got.Priority != models.PriorityHigh {
 			t.Errorf("fields not preserved: %+v", got)
+		}
+		if got.OwnerID != owner {
+			t.Errorf("OwnerID = %s, want %s", got.OwnerID, owner)
 		}
 		if got.Completed || got.CompletedAt != nil {
 			t.Errorf("expected not completed, got completed=%v completedAt=%v", got.Completed, got.CompletedAt)
@@ -89,7 +100,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		id := uuid.NewString()
 
-		_, err := repo.GetByID(id)
+		_, err := repo.GetByID(ctx, owner, id)
 		if !errors.Is(err, ErrTaskNotFound) {
 			t.Fatalf("expected ErrTaskNotFound, got %v", err)
 		}
@@ -100,7 +111,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 
 	t.Run("GetAll empty returns no tasks", func(t *testing.T) {
 		repo := mk(t)
-		got, err := repo.GetAll(ListTasksParams{Page: 1, Size: 10})
+		got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 10})
 		if err != nil {
 			t.Fatalf("GetAll: %v", err)
 		}
@@ -117,7 +128,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			time.Sleep(2 * time.Millisecond)
 		}
 
-		page1, err := repo.GetAll(ListTasksParams{Page: 1, Size: 2})
+		page1, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 2})
 		if err != nil {
 			t.Fatalf("GetAll page 1: %v", err)
 		}
@@ -125,7 +136,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("page 1 = %v, want the first two in creation order", idsOf(page1))
 		}
 
-		page3, err := repo.GetAll(ListTasksParams{Page: 3, Size: 2})
+		page3, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 3, Size: 2})
 		if err != nil {
 			t.Fatalf("GetAll page 3: %v", err)
 		}
@@ -133,7 +144,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("page 3 = %v, want just the last task", idsOf(page3))
 		}
 
-		past, err := repo.GetAll(ListTasksParams{Page: 99, Size: 2})
+		past, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 99, Size: 2})
 		if err != nil {
 			t.Fatalf("GetAll page 99: %v", err)
 		}
@@ -146,7 +157,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		create(t, repo, "only")
 
-		got, err := repo.GetAll(ListTasksParams{Page: 0, Size: 0})
+		got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 0, Size: 0})
 		if err != nil {
 			t.Fatalf("GetAll: %v", err)
 		}
@@ -167,7 +178,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Fatalf("after 2 inserts Count = %d, want 2", n)
 		}
 
-		if _, err := repo.Delete(a.ID.String()); err != nil {
+		if _, err := repo.Delete(ctx, owner, a.ID.String()); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
 		if n := count(t, repo); n != 1 {
@@ -181,7 +192,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		time.Sleep(2 * time.Millisecond)
 
 		due := time.Date(2032, 2, 2, 0, 0, 0, 0, time.UTC)
-		updated, err := repo.Update(models.Task{
+		updated, err := repo.Update(ctx, owner, models.Task{
 			ID:          orig.ID,
 			Title:       "after",
 			Description: "new",
@@ -208,7 +219,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("DueDate = %v, want %v", updated.DueDate, due)
 		}
 
-		got, err := repo.GetByID(orig.ID.String())
+		got, err := repo.GetByID(ctx, owner, orig.ID.String())
 		if err != nil {
 			t.Fatalf("GetByID after update: %v", err)
 		}
@@ -221,7 +232,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		id := uuid.New()
 
-		_, err := repo.Update(models.Task{ID: id, Title: "x"})
+		_, err := repo.Update(ctx, owner, models.Task{ID: id, Title: "x"})
 		if !errors.Is(err, ErrTaskNotFound) {
 			t.Fatalf("expected ErrTaskNotFound, got %v", err)
 		}
@@ -234,7 +245,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		task := create(t, repo, "task")
 
-		done, err := repo.Update(models.Task{ID: task.ID, Title: "task", Completed: true})
+		done, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: true})
 		if err != nil {
 			t.Fatalf("Update complete: %v", err)
 		}
@@ -243,7 +254,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 		stamp := *done.CompletedAt
 
-		again, err := repo.Update(models.Task{ID: task.ID, Title: "task", Completed: true})
+		again, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: true})
 		if err != nil {
 			t.Fatalf("Update still-complete: %v", err)
 		}
@@ -251,7 +262,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("completed_at changed on a no-op re-complete: %v -> %v", stamp, again.CompletedAt)
 		}
 
-		reopened, err := repo.Update(models.Task{ID: task.ID, Title: "task", Completed: false})
+		reopened, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: false})
 		if err != nil {
 			t.Fatalf("Update uncomplete: %v", err)
 		}
@@ -265,11 +276,11 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		keep := create(t, repo, "keep")
 		target := create(t, repo, "target")
 
-		if _, err := repo.Update(models.Task{ID: target.ID, Title: "changed"}); err != nil {
+		if _, err := repo.Update(ctx, owner, models.Task{ID: target.ID, Title: "changed"}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
 
-		got, err := repo.GetByID(keep.ID.String())
+		got, err := repo.GetByID(ctx, owner, keep.ID.String())
 		if err != nil {
 			t.Fatalf("GetByID keep: %v", err)
 		}
@@ -282,14 +293,14 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		task := create(t, repo, "goner")
 
-		deleted, err := repo.Delete(task.ID.String())
+		deleted, err := repo.Delete(ctx, owner, task.ID.String())
 		if err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
 		if deleted.ID != task.ID || deleted.Title != "goner" {
 			t.Errorf("Delete returned %+v, want the created task", deleted)
 		}
-		if _, err := repo.GetByID(task.ID.String()); !errors.Is(err, ErrTaskNotFound) {
+		if _, err := repo.GetByID(ctx, owner, task.ID.String()); !errors.Is(err, ErrTaskNotFound) {
 			t.Errorf("task still retrievable after delete: %v", err)
 		}
 	})
@@ -298,7 +309,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		repo := mk(t)
 		id := uuid.NewString()
 
-		_, err := repo.Delete(id)
+		_, err := repo.Delete(ctx, owner, id)
 		if !errors.Is(err, ErrTaskNotFound) {
 			t.Fatalf("expected ErrTaskNotFound, got %v", err)
 		}
@@ -312,14 +323,50 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		keep := create(t, repo, "keep")
 		gone := create(t, repo, "gone")
 
-		if _, err := repo.Delete(gone.ID.String()); err != nil {
+		if _, err := repo.Delete(ctx, owner, gone.ID.String()); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
 		if n := count(t, repo); n != 1 {
 			t.Errorf("Count = %d after deleting one of two, want 1", n)
 		}
-		if _, err := repo.GetByID(keep.ID.String()); err != nil {
+		if _, err := repo.GetByID(ctx, owner, keep.ID.String()); err != nil {
 			t.Errorf("kept task not retrievable: %v", err)
+		}
+	})
+
+	t.Run("one owner cannot see or touch another owner's task", func(t *testing.T) {
+		repo := mk(t)
+		other := uuid.New()
+
+		mine := create(t, repo, "mine")
+		theirs, err := repo.Create(ctx, other, models.Task{Title: "theirs"})
+		if err != nil {
+			t.Fatalf("Create for other owner: %v", err)
+		}
+
+		if got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 50}); err != nil {
+			t.Fatalf("GetAll: %v", err)
+		} else if len(got) != 1 || got[0].ID != mine.ID {
+			t.Errorf("GetAll returned %v, want just %s", idsOf(got), mine.ID)
+		}
+		if n := count(t, repo); n != 1 {
+			t.Errorf("Count for owner = %d, want 1", n)
+		}
+
+		if _, err := repo.GetByID(ctx, owner, theirs.ID.String()); !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("GetByID on another owner's task: got %v, want ErrTaskNotFound", err)
+		}
+		if _, err := repo.Update(ctx, owner, models.Task{ID: theirs.ID, Title: "hijack"}); !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("Update on another owner's task: got %v, want ErrTaskNotFound", err)
+		}
+		if _, err := repo.Delete(ctx, owner, theirs.ID.String()); !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("Delete on another owner's task: got %v, want ErrTaskNotFound", err)
+		}
+
+		if still, err := repo.GetByID(ctx, other, theirs.ID.String()); err != nil {
+			t.Errorf("other owner's task should survive: %v", err)
+		} else if still.Title != "theirs" {
+			t.Errorf("other owner's task was modified: %+v", still)
 		}
 	})
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/httpx"
 	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
@@ -20,16 +22,28 @@ func NewTaskHandler(repo repository.TaskRepository) *TaskHandler {
 	return &TaskHandler{repo: repo}
 }
 
+// owner returns the authenticated user id, writing a 401 and returning false
+// when the request never passed through Authenticate.
+func (h *TaskHandler) owner(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, ok := OwnerFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+	}
+	return id, ok
+}
+
 // GetTask handles GET /api/v1/tasks/{id}.
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	task, err := h.repo.GetByID(id)
+	ownerID, ok := h.owner(w, r)
+	if !ok {
+		return
+	}
 
+	task, err := h.repo.GetByID(r.Context(), ownerID, r.PathValue("id"))
 	if errors.Is(err, repository.ErrTaskNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
 	if err != nil {
 		httpx.WriteISE(w)
 		return
@@ -40,17 +54,21 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 
 // GetAllTasks handles GET /api/v1/tasks with pagination.
 func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.owner(w, r)
+	if !ok {
+		return
+	}
+
 	page, size := httpx.ParsePagination(r)
 	listParams := repository.ListTasksParams{Page: page, Size: size}
-	taskList, err := h.repo.GetAll(listParams)
 
+	taskList, err := h.repo.GetAll(r.Context(), ownerID, listParams)
 	if err != nil {
 		httpx.WriteISE(w)
 		return
 	}
 
-	count, err := h.repo.Count(listParams)
-
+	count, err := h.repo.Count(r.Context(), ownerID, listParams)
 	if err != nil {
 		httpx.WriteISE(w)
 		return
@@ -67,6 +85,11 @@ func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/v1/tasks.
 func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.owner(w, r)
+	if !ok {
+		return
+	}
+
 	var req createTaskRequest
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
@@ -76,7 +99,7 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.repo.Create(req.toModel())
+	task, err := h.repo.Create(r.Context(), ownerID, req.toModel())
 	if err != nil {
 		httpx.WriteISE(w)
 		return
@@ -88,23 +111,31 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/v1/tasks/{id}.
 func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	_, err := h.repo.Delete(id)
+	ownerID, ok := h.owner(w, r)
+	if !ok {
+		return
+	}
 
+	_, err := h.repo.Delete(r.Context(), ownerID, r.PathValue("id"))
 	if errors.Is(err, repository.ErrTaskNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
 	if err != nil {
 		httpx.WriteISE(w)
 		return
 	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // Update handles PATCH /api/v1/tasks/{id}.
 func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := h.owner(w, r)
+	if !ok {
+		return
+	}
+
 	var req updateTaskRequest
 	if !httpx.DecodeJSON(w, r, &req) {
 		return
@@ -115,7 +146,7 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue("id")
-	task, err := h.repo.GetByID(id)
+	task, err := h.repo.GetByID(r.Context(), ownerID, id)
 	if errors.Is(err, repository.ErrTaskNotFound) {
 		httpx.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -127,7 +158,7 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	req.applyTo(&task)
 
-	updated, err := h.repo.Update(task)
+	updated, err := h.repo.Update(r.Context(), ownerID, task)
 	if err != nil {
 		httpx.WriteISE(w)
 		return
