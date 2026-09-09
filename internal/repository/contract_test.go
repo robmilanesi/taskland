@@ -217,11 +217,16 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 	})
 
-	t.Run("Update unknown returns ErrTaskNotFound", func(t *testing.T) {
+	t.Run("Update unknown returns ErrTaskNotFound with id", func(t *testing.T) {
 		repo := mk(t)
-		_, err := repo.Update(models.Task{ID: uuid.New(), Title: "x"})
+		id := uuid.New()
+
+		_, err := repo.Update(models.Task{ID: id, Title: "x"})
 		if !errors.Is(err, ErrTaskNotFound) {
-			t.Errorf("expected ErrTaskNotFound, got %v", err)
+			t.Fatalf("expected ErrTaskNotFound, got %v", err)
+		}
+		if !strings.Contains(err.Error(), id.String()) {
+			t.Errorf("error %q should mention the requested id %q", err, id)
 		}
 	})
 
@@ -289,11 +294,16 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 	})
 
-	t.Run("Delete unknown returns ErrTaskNotFound", func(t *testing.T) {
+	t.Run("Delete unknown returns ErrTaskNotFound with id", func(t *testing.T) {
 		repo := mk(t)
-		_, err := repo.Delete(uuid.NewString())
+		id := uuid.NewString()
+
+		_, err := repo.Delete(id)
 		if !errors.Is(err, ErrTaskNotFound) {
-			t.Errorf("expected ErrTaskNotFound, got %v", err)
+			t.Fatalf("expected ErrTaskNotFound, got %v", err)
+		}
+		if !strings.Contains(err.Error(), id) {
+			t.Errorf("error %q should mention the requested id %q", err, id)
 		}
 	})
 
