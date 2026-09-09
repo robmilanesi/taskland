@@ -2,22 +2,24 @@
 package main
 
 import (
-	"cmp"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/robmilanesi/taskland/internal/api"
+	"github.com/robmilanesi/taskland/internal/config"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
 
 func main() {
-	dsn := cmp.Or(os.Getenv("TASKLAND_DB_PATH"), "taskland.db")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 
 	repo, err := repository.NewTaskRepository(repository.Config{
 		Type: repository.TaskRepoSQLite,
-		DSN:  dsn,
+		DSN:  cfg.DBPath,
 	})
 	if err != nil {
 		log.Fatalf("failed to initialize task repository: %v", err)
@@ -27,7 +29,7 @@ func main() {
 	router := api.NewRouter(repo)
 
 	server := &http.Server{
-		Addr:              ":8080",
+		Addr:              cfg.Addr,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -35,6 +37,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Println("server avviato su :8080")
+	log.Println("starting server")
 	log.Fatal(server.ListenAndServe())
 }
