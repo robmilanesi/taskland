@@ -2,8 +2,10 @@
 package main
 
 import (
+	"cmp"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/robmilanesi/taskland/internal/api"
@@ -11,11 +13,16 @@ import (
 )
 
 func main() {
+	dsn := cmp.Or(os.Getenv("TASKLAND_DB_PATH"), "taskland.db")
 
-	repo, err := repository.NewTaskRepository(repository.Config{Type: repository.TaskRepoInMemory})
+	repo, err := repository.NewTaskRepository(repository.Config{
+		Type: repository.TaskRepoSQLite,
+		DSN:  dsn,
+	})
 	if err != nil {
 		log.Fatalf("failed to initialize task repository: %v", err)
 	}
+	log.Println("task repository: sqlite")
 
 	router := api.NewRouter(repo)
 

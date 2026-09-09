@@ -2,7 +2,6 @@
 package repository
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/robmilanesi/taskland/internal/models"
@@ -14,7 +13,7 @@ type TaskRepositoryType int
 // Supported TaskRepository implementations.
 const (
 	TaskRepoInMemory TaskRepositoryType = iota
-	TaskRepoDatabase
+	TaskRepoSQLite
 )
 
 // ListTasksParams holds the pagination options for listing tasks.
@@ -45,8 +44,12 @@ func NewTaskRepository(cfg Config) (TaskRepository, error) {
 	switch cfg.Type {
 	case TaskRepoInMemory:
 		return newInMemoryTaskRepo(), nil
-	case TaskRepoDatabase:
-		return nil, errors.New("database task repository not yet implemented")
+	case TaskRepoSQLite:
+		repo, err := newSQLiteTaskRepo(cfg.DSN)
+		if err != nil {
+			return nil, err
+		}
+		return repo, nil
 	default:
 		return nil, fmt.Errorf("unhandled repository type: %d", cfg.Type)
 	}
