@@ -5,8 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/google/uuid"
-
 	"github.com/robmilanesi/taskland/internal/httpx"
 	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
@@ -22,19 +20,9 @@ func NewTaskHandler(repo repository.TaskRepository) *TaskHandler {
 	return &TaskHandler{repo: repo}
 }
 
-// owner returns the authenticated user id, writing a 401 and returning false
-// when the request never passed through Authenticate.
-func (h *TaskHandler) owner(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	id, ok := OwnerFromContext(r.Context())
-	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-	}
-	return id, ok
-}
-
 // GetTask handles GET /api/v1/tasks/{id}.
 func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
-	ownerID, ok := h.owner(w, r)
+	ownerID, ok := requireOwner(w, r)
 	if !ok {
 		return
 	}
@@ -54,7 +42,7 @@ func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 
 // GetAllTasks handles GET /api/v1/tasks with pagination.
 func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
-	ownerID, ok := h.owner(w, r)
+	ownerID, ok := requireOwner(w, r)
 	if !ok {
 		return
 	}
@@ -85,7 +73,7 @@ func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 
 // Create handles POST /api/v1/tasks.
 func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
-	ownerID, ok := h.owner(w, r)
+	ownerID, ok := requireOwner(w, r)
 	if !ok {
 		return
 	}
@@ -111,7 +99,7 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/v1/tasks/{id}.
 func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	ownerID, ok := h.owner(w, r)
+	ownerID, ok := requireOwner(w, r)
 	if !ok {
 		return
 	}
@@ -131,7 +119,7 @@ func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PATCH /api/v1/tasks/{id}.
 func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
-	ownerID, ok := h.owner(w, r)
+	ownerID, ok := requireOwner(w, r)
 	if !ok {
 		return
 	}

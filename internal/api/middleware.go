@@ -54,3 +54,14 @@ func OwnerFromContext(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(ownerIDKey).(uuid.UUID)
 	return id, ok
 }
+
+// requireOwner returns the authenticated user id for any protected handler. When
+// the request never passed through Authenticate it writes a 401 and returns
+// false, so the handler can just return.
+func requireOwner(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	id, ok := OwnerFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+	}
+	return id, ok
+}
