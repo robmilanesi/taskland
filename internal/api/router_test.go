@@ -1,11 +1,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
 	"time"
 
 	"github.com/google/uuid"
@@ -15,22 +15,31 @@ import (
 	"github.com/robmilanesi/taskland/internal/repository"
 )
 
-func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
+const routerTestSecret = "router-test-secret-with-enough-length"
+
+const (
+	authValid   = ""
+	authNone    = "none"
+	authForeign = "foreign"
+)
+
+func TestRouter_Routes(t *testing.T) {
 	tests := []struct {
 		name       string
 		method     string
-		path       func(id uuid.UUID) string // il path può dipendere dall'id generato nel setup
+		path       func(id uuid.UUID) string
 		body       string
-		setup      func(t *testing.T, repo repository.TaskRepository) uuid.UUID // ritorna l'id creato
+		auth       string
+		setup      func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID
 		wantStatus int
 	}{
 		{
 			name:   "GET task by id - found",
 			method: http.MethodGet,
-			setup: func(t *testing.T, repo repository.TaskRepository) uuid.UUID {
-				task, err := repo.Create(models.Task{ID: uuid.New(), Title: "test"})
+			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
+				task, err := repo.Create(context.Background(), owner, models.Task{Title: "test"})
 				if err != nil {
-					t.Fatalf("setup: failed to create task: %v", err)
+					t.Fatalf("setup: %v", err)
 				}
 				return task.ID
 			},
@@ -40,7 +49,7 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 		{
 			name:       "GET task by id - not found",
 			method:     http.MethodGet,
-			path:       func(_ uuid.UUID) string { return "/api/v1/tasks/" + uuid.New().String() },
+			path:       func(uuid.UUID) string { return "/api/v1/tasks/" + uuid.NewString() },
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -59,10 +68,10 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 		{
 			name:   "PATCH update task",
 			method: http.MethodPatch,
-			setup: func(t *testing.T, repo repository.TaskRepository) uuid.UUID {
-				task, err := repo.Create(models.Task{ID: uuid.New(), Title: "to update"})
+			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
+				task, err := repo.Create(context.Background(), owner, models.Task{Title: "to update"})
 				if err != nil {
-					t.Fatalf("setup: failed to create task: %v", err)
+					t.Fatalf("setup: %v", err)
 				}
 				return task.ID
 			},
@@ -73,15 +82,42 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 		{
 			name:   "DELETE task",
 			method: http.MethodDelete,
-			setup: func(t *testing.T, repo repository.TaskRepository) uuid.UUID {
-				task, err := repo.Create(models.Task{ID: uuid.New(), Title: "to delete"})
+			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
+				task, err := repo.Create(context.Background(), owner, models.Task{Title: "to delete"})
 				if err != nil {
-					t.Fatalf("setup: failed to create task: %v", err)
+					t.Fatalf("setup: %v", err)
 				}
 				return task.ID
 			},
 			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
 			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "tasks without a token",
+			method:     http.MethodGet,
+			path:       func(uuid.UUID) string { return "/api/v1/tasks" },
+			auth:       authNone,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "tasks with a foreign token",
+			method:     http.MethodGet,
+			path:       func(uuid.UUID) string { return "/api/v1/tasks" },
+			auth:       authForeign,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:   "cannot GET another owner's task",
+			method: http.MethodGet,
+			setup: func(t *testing.T, repo repository.TaskRepository, _ uuid.UUID) uuid.UUID {
+				task, err := repo.Create(context.Background(), uuid.New(), models.Task{Title: "not yours"})
+				if err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+				return task.ID
+			},
+			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "method not allowed on collection",
@@ -101,32 +137,45 @@ func TestRouter_NewRouter_UnknownRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
 			if err != nil {
-				t.Fatalf("not expected error during store initialization: %v", err)
+				t.Fatalf("NewStore: %v", err)
 			}
+
+			owner := uuid.New()
+			issuer := auth.NewIssuer(routerTestSecret, time.Hour)
+			token, err := issuer.Issue(owner)
+			if err != nil {
+				t.Fatalf("Issue: %v", err)
+			}
+			router := NewRouter(store, issuer)
 
 			var id uuid.UUID
 			if tt.setup != nil {
-				id = tt.setup(t, store.Tasks)
+				id = tt.setup(t, store.Tasks, owner)
 			}
-
-			issuer := auth.NewIssuer("router-test-secret-with-enough-length", time.Hour)
-			router := NewRouter(store, issuer)
-
-			path := tt.path(id)
 
 			var req *http.Request
 			if tt.body != "" {
-				req = httptest.NewRequest(tt.method, path, strings.NewReader(tt.body))
+				req = httptest.NewRequest(tt.method, tt.path(id), strings.NewReader(tt.body))
 				req.Header.Set("Content-Type", "application/json")
 			} else {
-				req = httptest.NewRequest(tt.method, path, nil)
+				req = httptest.NewRequest(tt.method, tt.path(id), nil)
+			}
+
+			switch tt.auth {
+			case authNone:
+				// send no Authorization header
+			case authForeign:
+				foreign, _ := auth.NewIssuer("a-totally-different-secret-value!!", time.Hour).Issue(uuid.New())
+				req.Header.Set("Authorization", "Bearer "+foreign)
+			default:
+				req.Header.Set("Authorization", "Bearer "+token)
 			}
 
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
 			if rec.Code != tt.wantStatus {
-				t.Errorf("got status %d, want %d, body: %s", rec.Code, tt.wantStatus, rec.Body.String())
+				t.Errorf("got status %d, want %d; body: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 		})
 	}

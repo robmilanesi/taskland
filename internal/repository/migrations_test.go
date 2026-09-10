@@ -78,6 +78,19 @@ func TestRunMigrations_CreatesUsersTable(t *testing.T) {
 	}
 }
 
+func TestRunMigrations_TasksHaveOwnerColumn(t *testing.T) {
+	db := openTestDB(t)
+
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM tasks WHERE owner_id = ''").Scan(&n); err != nil {
+		t.Fatalf("querying tasks by owner_id: %v", err)
+	}
+}
+
 func TestRunMigrations_Idempotent(t *testing.T) {
 	db := openTestDB(t)
 

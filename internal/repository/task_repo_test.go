@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
@@ -27,15 +29,17 @@ func TestNewStore_SQLite(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	task, err := store.Tasks.Create(models.Task{Title: "via store"})
+	ctx := context.Background()
+	owner := uuid.New()
+
+	task, err := store.Tasks.Create(ctx, owner, models.Task{Title: "via store"})
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
 	}
-	if _, err := store.Tasks.GetByID(task.ID.String()); err != nil {
+	if _, err := store.Tasks.GetByID(ctx, owner, task.ID.String()); err != nil {
 		t.Fatalf("GetByID task: %v", err)
 	}
 
-	ctx := context.Background()
 	user, err := store.Users.CreateUser(ctx, models.User{Email: "a@b.c", PasswordHash: "x"})
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)

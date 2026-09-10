@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"time"
@@ -20,25 +21,36 @@ func newInMemoryTaskRepo() *inMemoryTaskRepository {
 	}
 }
 
-func (r *inMemoryTaskRepository) GetByID(id string) (models.Task, error) {
+func (r *inMemoryTaskRepository) GetByID(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
+	if err := ctx.Err(); err != nil {
+		return models.Task{}, err
+	}
+
 	task, ok := r.tasks[id]
-	if !ok {
-		return task, newErrTaskNotFound(id)
+	if !ok || task.OwnerID != ownerID {
+		return models.Task{}, newErrTaskNotFound(id)
 	}
 	return task, nil
 }
 
-func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, error) {
+func (r *inMemoryTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if params.Page <= 0 {
 		params.Page = 1
 	}
-
 	if params.Size <= 0 {
 		params.Size = 20
 	}
 
-	taskList := slices.Collect(maps.Values(r.tasks))
+	taskList := []models.Task{}
+	for task := range maps.Values(r.tasks) {
+		if task.OwnerID == ownerID {
+			taskList = append(taskList, task)
+		}
+	}
 	slices.SortFunc(taskList, func(a, b models.Task) int {
 		return a.CreatedAt.Compare(b.CreatedAt)
 	})
@@ -56,48 +68,63 @@ func (r *inMemoryTaskRepository) GetAll(params ListTasksParams) ([]models.Task, 
 	return taskList[offset:end], nil
 }
 
-func (r *inMemoryTaskRepository) Count(_ ListTasksParams) (int, error) {
-	return len(r.tasks), nil
+func (r *inMemoryTaskRepository) Count(ctx context.Context, ownerID uuid.UUID, _ ListTasksParams) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	n := 0
+	for _, task := range r.tasks {
+		if task.OwnerID == ownerID {
+			n++
+		}
+	}
+	return n, nil
 }
 
-func (r *inMemoryTaskRepository) Create(task models.Task) (models.Task, error) {
+func (r *inMemoryTaskRepository) Create(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
+	if err := ctx.Err(); err != nil {
+		return models.Task{}, err
+	}
+
 	task.ID = uuid.New()
+	task.OwnerID = ownerID
 	task.CreatedAt = time.Now()
 	task.UpdatedAt = task.CreatedAt
 	r.tasks[task.ID.String()] = task
 	return task, nil
 }
 
-func (r *inMemoryTaskRepository) Delete(id string) (models.Task, error) {
-	task, ok := r.tasks[id]
-	if !ok {
-		return models.Task{}, newErrTaskNotFound(id)
-	}
-	delete(r.tasks, id)
-	return task, nil
-}
-
-func (r *inMemoryTaskRepository) Update(task models.Task) (models.Task, error) {
-	savedTask, err := r.GetByID(task.ID.String())
+func (r *inMemoryTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
+	saved, err := r.GetByID(ctx, ownerID, task.ID.String())
 	if err != nil {
 		return models.Task{}, err
 	}
 
-	savedTask.Title = task.Title
-	savedTask.Description = task.Description
+	saved.Title = task.Title
+	saved.Description = task.Description
 	switch {
-	case !savedTask.Completed && task.Completed:
+	case !saved.Completed && task.Completed:
 		now := time.Now()
-		savedTask.Completed = true
-		savedTask.CompletedAt = &now
-	case savedTask.Completed && !task.Completed:
-		savedTask.Completed = false
-		savedTask.CompletedAt = nil
+		saved.Completed = true
+		saved.CompletedAt = &now
+	case saved.Completed && !task.Completed:
+		saved.Completed = false
+		saved.CompletedAt = nil
 	}
-	savedTask.Priority = task.Priority
-	savedTask.DueDate = task.DueDate
-	savedTask.UpdatedAt = time.Now()
+	saved.Priority = task.Priority
+	saved.DueDate = task.DueDate
+	saved.UpdatedAt = time.Now()
 
-	r.tasks[savedTask.ID.String()] = savedTask
-	return savedTask, nil
+	r.tasks[saved.ID.String()] = saved
+	return saved, nil
+}
+
+func (r *inMemoryTaskRepository) Delete(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
+	task, err := r.GetByID(ctx, ownerID, id)
+	if err != nil {
+		return models.Task{}, err
+	}
+	delete(r.tasks, id)
+	return task, nil
 }

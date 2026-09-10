@@ -18,21 +18,24 @@ import (
 //	PATCH  /api/v1/tasks/{id}    - partially update a task by ID
 //	DELETE /api/v1/tasks/{id}    - delete a task by ID
 //
-// Every route runs through the RequestID, RequestLogger and Recover middleware.
+// The /auth routes are public; the /tasks routes require a valid Bearer token
+// and every route runs through the RequestID, RequestLogger and Recover middleware.
 func NewRouter(store *repository.Store, issuer *auth.Issuer) http.Handler {
 	th := NewTaskHandler(store.Tasks)
 	ah := NewAuthHandler(store.Users, issuer)
+
+	authed := Authenticate(issuer)
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/v1/auth/register", ah.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", ah.Login)
 
-	mux.HandleFunc("GET /api/v1/tasks/{id}", th.GetTask)
-	mux.HandleFunc("GET /api/v1/tasks", th.GetAllTasks)
-	mux.HandleFunc("POST /api/v1/tasks", th.Create)
-	mux.HandleFunc("PATCH /api/v1/tasks/{id}", th.Update)
-	mux.HandleFunc("DELETE /api/v1/tasks/{id}", th.Delete)
+	mux.Handle("GET /api/v1/tasks/{id}", authed(http.HandlerFunc(th.GetTask)))
+	mux.Handle("GET /api/v1/tasks", authed(http.HandlerFunc(th.GetAllTasks)))
+	mux.Handle("POST /api/v1/tasks", authed(http.HandlerFunc(th.Create)))
+	mux.Handle("PATCH /api/v1/tasks/{id}", authed(http.HandlerFunc(th.Update)))
+	mux.Handle("DELETE /api/v1/tasks/{id}", authed(http.HandlerFunc(th.Delete)))
 
 	return httpx.Chain(mux, httpx.RequestID, httpx.RequestLogger, httpx.Recover)
 }

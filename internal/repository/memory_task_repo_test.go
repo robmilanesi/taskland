@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
 	repo := newInMemoryTaskRepo()
+	owner := uuid.New()
 
 	base := time.Now()
 	ids := make([]uuid.UUID, 5)
@@ -24,12 +26,13 @@ func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
 		ids[i] = id
 		repo.tasks[id.String()] = models.Task{
 			ID:        id,
+			OwnerID:   owner,
 			Title:     title,
 			CreatedAt: base.Add(time.Duration(i) * time.Second),
 		}
 	}
 
-	taskList, err := repo.GetAll(ListTasksParams{Page: 1, Size: 20})
+	taskList, err := repo.GetAll(context.Background(), owner, ListTasksParams{Page: 1, Size: 20})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -45,18 +48,20 @@ func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
 
 func TestInMemoryTaskRepo_Update_ManagesTimestampsItself(t *testing.T) {
 	repo := newInMemoryTaskRepo()
+	owner := uuid.New()
 
 	created := time.Now().Add(-24 * time.Hour)
 	id := uuid.New()
 	repo.tasks[id.String()] = models.Task{
 		ID:        id,
+		OwnerID:   owner,
 		Title:     "saved",
 		CreatedAt: created,
 		UpdatedAt: created,
 	}
 
 	before := time.Now()
-	result, err := repo.Update(models.Task{
+	result, err := repo.Update(context.Background(), owner, models.Task{
 		ID:        id,
 		Title:     "updated",
 		CreatedAt: time.Now().Add(10 * time.Hour),

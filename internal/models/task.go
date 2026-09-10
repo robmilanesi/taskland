@@ -20,7 +20,10 @@ const (
 
 // Task is a single to-do item.
 type Task struct {
-	ID          uuid.UUID  `json:"id"`
+	ID uuid.UUID `json:"id"`
+	// OwnerID is the user that owns the task. It is scoping metadata managed by
+	// the repository, never accepted from or exposed to API clients.
+	OwnerID     uuid.UUID  `json:"-"`
 	Title       string     `json:"title"`
 	Description string     `json:"description,omitempty"`
 	Completed   bool       `json:"completed"`
