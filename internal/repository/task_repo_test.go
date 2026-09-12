@@ -14,8 +14,8 @@ func TestNewStore_InMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if store.Tasks == nil || store.Users == nil {
-		t.Fatal("expected both repositories to be set")
+	if store.Tasks == nil || store.Users == nil || store.Lists == nil {
+		t.Fatal("expected every repository to be set")
 	}
 	if err := store.Close(); err != nil {
 		t.Errorf("Close on in-memory store: %v", err)
@@ -46,6 +46,14 @@ func TestNewStore_SQLite(t *testing.T) {
 	}
 	if _, err := store.Users.GetUserByID(ctx, user.ID); err != nil {
 		t.Fatalf("GetUserByID: %v", err)
+	}
+
+	list, err := store.Lists.CreateList(ctx, owner, "via store")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	if _, err := store.Lists.GetListByID(ctx, owner, list.ID.String()); err != nil {
+		t.Fatalf("GetListByID: %v", err)
 	}
 }
 

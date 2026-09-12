@@ -48,6 +48,7 @@ type Config struct {
 type Store struct {
 	Tasks TaskRepository
 	Users UserRepository
+	Lists ListRepository
 
 	closer func() error
 }
@@ -68,6 +69,7 @@ func NewStore(cfg Config) (*Store, error) {
 		return &Store{
 			Tasks: newInMemoryTaskRepo(),
 			Users: newInMemoryUserRepo(),
+			Lists: newInMemoryListRepo(),
 		}, nil
 	case TaskRepoSQLite:
 		db, err := newSQLiteDB(cfg.DSN)
@@ -77,6 +79,7 @@ func NewStore(cfg Config) (*Store, error) {
 		return &Store{
 			Tasks:  newSQLiteTaskRepo(db),
 			Users:  newSQLiteUserRepo(db),
+			Lists:  newSQLiteListRepo(db),
 			closer: db.Close,
 		}, nil
 	default:

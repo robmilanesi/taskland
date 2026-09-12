@@ -91,6 +91,39 @@ func TestRunMigrations_TasksHaveOwnerColumn(t *testing.T) {
 	}
 }
 
+func TestRunMigrations_CreatesListsTables(t *testing.T) {
+	db := openTestDB(t)
+
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	for _, table := range []string{"lists", "list_members"} {
+		var n int
+		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
+			t.Fatalf("querying %s after migration: %v", table, err)
+		}
+	}
+}
+
+func TestRunMigrations_OnlyOneInboxPerOwner(t *testing.T) {
+	db := openTestDB(t)
+
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("runMigrations: %v", err)
+	}
+
+	owner := "owner-1"
+	insertInbox := "INSERT INTO lists (id, owner_id, name, is_inbox, created_at) VALUES (?, ?, 'Inbox', 1, '2030-01-01T00:00:00.000000000Z')"
+
+	if _, err := db.Exec(insertInbox, "list-1", owner); err != nil {
+		t.Fatalf("first inbox insert: %v", err)
+	}
+	if _, err := db.Exec(insertInbox, "list-2", owner); err == nil {
+		t.Error("expected a second inbox for the same owner to violate the unique index")
+	}
+}
+
 func TestRunMigrations_Idempotent(t *testing.T) {
 	db := openTestDB(t)
 
