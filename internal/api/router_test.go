@@ -180,3 +180,125 @@ func TestRouter_Routes(t *testing.T) {
 		})
 	}
 }
+
+func TestRouter_ListRoutes(t *testing.T) {
+	newRouterAndStore := func(t *testing.T) (http.Handler, *repository.Store, *auth.Issuer) {
+		t.Helper()
+		store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
+		if err != nil {
+			t.Fatalf("NewStore: %v", err)
+		}
+		issuer := auth.NewIssuer(routerTestSecret, time.Hour)
+		return NewRouter(store, issuer), store, issuer
+	}
+
+	tokenFor := func(t *testing.T, issuer *auth.Issuer, id uuid.UUID) string {
+		t.Helper()
+		token, err := issuer.Issue(id)
+		if err != nil {
+			t.Fatalf("Issue: %v", err)
+		}
+		return token
+	}
+
+	t.Run("create a list", func(t *testing.T) {
+		router, _, issuer := newRouterAndStore(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/lists", strings.NewReader(`{"name":"Groceries"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, uuid.New()))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Errorf("status = %d, want 201; body %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("lists without a token", func(t *testing.T) {
+		router, _, _ := newRouterAndStore(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/lists", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("cannot GET a list you are not a member of", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		list, err := store.Lists.CreateList(context.Background(), uuid.New(), "private")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/lists/"+list.ID.String(), nil)
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, uuid.New()))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("a non-owner member cannot rename the list", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner, member := uuid.New(), uuid.New()
+		list, err := store.Lists.CreateList(context.Background(), owner, "shared")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+		if err := store.Lists.AddMember(context.Background(), owner, list.ID.String(), member); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/lists/"+list.ID.String(), strings.NewReader(`{"name":"renamed"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, member))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+	})
+
+	t.Run("the inbox cannot be deleted", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner := uuid.New()
+		inbox, err := store.Lists.InboxFor(context.Background(), owner)
+		if err != nil {
+			t.Fatalf("InboxFor: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/lists/"+inbox.ID.String(), nil)
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, owner))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusConflict {
+			t.Errorf("status = %d, want 409", rec.Code)
+		}
+	})
+
+	t.Run("owner deletes a regular list", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner := uuid.New()
+		list, err := store.Lists.CreateList(context.Background(), owner, "goner")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/lists/"+list.ID.String(), nil)
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, owner))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want 204; body %s", rec.Code, rec.Body)
+		}
+	})
+}
