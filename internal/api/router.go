@@ -22,7 +22,7 @@ import (
 // and every route runs through the RequestID, RequestLogger and Recover middleware.
 func NewRouter(store *repository.Store, issuer *auth.Issuer) http.Handler {
 	th := NewTaskHandler(store.Tasks)
-	ah := NewAuthHandler(store.Users, issuer)
+	ah := NewAuthHandler(store, issuer)
 
 	authed := Authenticate(issuer)
 

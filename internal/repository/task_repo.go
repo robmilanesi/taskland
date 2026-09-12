@@ -50,7 +50,8 @@ type Store struct {
 	Users UserRepository
 	Lists ListRepository
 
-	closer func() error
+	closer          func() error
+	registerAccount func(context.Context, models.User) (models.User, error)
 }
 
 // Close releases resources held by the store, such as the database handle.
@@ -66,10 +67,13 @@ func (s *Store) Close() error {
 func NewStore(cfg Config) (*Store, error) {
 	switch cfg.Type {
 	case TaskRepoInMemory:
+		users := newInMemoryUserRepo()
+		lists := newInMemoryListRepo()
 		return &Store{
-			Tasks: newInMemoryTaskRepo(),
-			Users: newInMemoryUserRepo(),
-			Lists: newInMemoryListRepo(),
+			Tasks:           newInMemoryTaskRepo(),
+			Users:           users,
+			Lists:           lists,
+			registerAccount: registerAccountSequential(users, lists),
 		}, nil
 	case TaskRepoSQLite:
 		db, err := newSQLiteDB(cfg.DSN)
@@ -77,9 +81,12 @@ func NewStore(cfg Config) (*Store, error) {
 			return nil, err
 		}
 		return &Store{
-			Tasks:  newSQLiteTaskRepo(db),
-			Users:  newSQLiteUserRepo(db),
-			Lists:  newSQLiteListRepo(db),
+			Tasks: newSQLiteTaskRepo(db),
+			Users: newSQLiteUserRepo(db),
+			Lists: newSQLiteListRepo(db),
+			registerAccount: func(ctx context.Context, user models.User) (models.User, error) {
+				return registerAccountTx(ctx, db, user)
+			},
 			closer: db.Close,
 		}, nil
 	default:

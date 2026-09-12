@@ -15,14 +15,13 @@ import (
 
 // AuthHandler serves the registration and login endpoints.
 type AuthHandler struct {
-	users  repository.UserRepository
+	store  *repository.Store
 	issuer *auth.Issuer
 }
 
-// NewAuthHandler returns an AuthHandler backed by the given user repository and
-// token issuer.
-func NewAuthHandler(users repository.UserRepository, issuer *auth.Issuer) *AuthHandler {
-	return &AuthHandler{users: users, issuer: issuer}
+// NewAuthHandler returns an AuthHandler backed by store and issuer.
+func NewAuthHandler(store *repository.Store, issuer *auth.Issuer) *AuthHandler {
+	return &AuthHandler{store: store, issuer: issuer}
 }
 
 // Register handles POST /api/v1/auth/register.
@@ -42,7 +41,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.CreateUser(r.Context(), models.User{
+	user, err := h.store.RegisterAccount(r.Context(), models.User{
 		Email:        strings.TrimSpace(req.Email),
 		PasswordHash: string(hash),
 	})
@@ -65,7 +64,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.GetUserByEmail(r.Context(), strings.TrimSpace(req.Email))
+	user, err := h.store.Users.GetUserByEmail(r.Context(), strings.TrimSpace(req.Email))
 	if errors.Is(err, repository.ErrUserNotFound) {
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
 		return

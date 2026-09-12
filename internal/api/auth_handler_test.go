@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,18 +9,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/auth"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
 
-func newAuthHandler(t *testing.T) (*AuthHandler, *auth.Issuer) {
+func newAuthHandler(t *testing.T) (*AuthHandler, *auth.Issuer, *repository.Store) {
 	t.Helper()
 	store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	issuer := auth.NewIssuer("auth-handler-test-secret-of-enough-length", time.Hour)
-	return NewAuthHandler(store.Users, issuer), issuer
+	return NewAuthHandler(store, issuer), issuer, store
 }
 
 func doJSON(t *testing.T, h http.HandlerFunc, body string) *httptest.ResponseRecorder {
@@ -31,7 +34,7 @@ func doJSON(t *testing.T, h http.HandlerFunc, body string) *httptest.ResponseRec
 }
 
 func TestAuthHandler_Register_Created(t *testing.T) {
-	h, _ := newAuthHandler(t)
+	h, _, store := newAuthHandler(t)
 
 	rec := doJSON(t, h.Register, `{"email":"a@example.com","password":"supersecret"}`)
 
@@ -45,16 +48,29 @@ func TestAuthHandler_Register_Created(t *testing.T) {
 	if body["email"] != "a@example.com" {
 		t.Errorf("email = %v, want a@example.com", body["email"])
 	}
-	if body["id"] == nil || body["id"] == "" {
-		t.Errorf("expected an id, got %v", body["id"])
+	idStr, _ := body["id"].(string)
+	if idStr == "" {
+		t.Fatalf("expected an id, got %v", body["id"])
 	}
 	if _, leaked := body["password_hash"]; leaked {
 		t.Error("response leaked password_hash")
 	}
+
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		t.Fatalf("response id %q is not a uuid: %v", idStr, err)
+	}
+	lists, err := store.Lists.GetAllLists(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("GetAllLists: %v", err)
+	}
+	if len(lists) != 1 || !lists[0].IsInbox {
+		t.Fatalf("expected registration to create exactly one inbox list, got %+v", lists)
+	}
 }
 
 func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
-	h, _ := newAuthHandler(t)
+	h, _, _ := newAuthHandler(t)
 
 	first := doJSON(t, h.Register, `{"email":"dup@example.com","password":"supersecret"}`)
 	if first.Code != http.StatusCreated {
@@ -68,7 +84,7 @@ func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
 }
 
 func TestAuthHandler_Register_Validation(t *testing.T) {
-	h, _ := newAuthHandler(t)
+	h, _, _ := newAuthHandler(t)
 
 	tests := map[string]string{
 		"empty email":    `{"email":"  ","password":"supersecret"}`,
@@ -87,7 +103,7 @@ func TestAuthHandler_Register_Validation(t *testing.T) {
 }
 
 func TestAuthHandler_Login_OK(t *testing.T) {
-	h, issuer := newAuthHandler(t)
+	h, issuer, _ := newAuthHandler(t)
 
 	reg := doJSON(t, h.Register, `{"email":"login@example.com","password":"supersecret"}`)
 	if reg.Code != http.StatusCreated {
@@ -122,7 +138,7 @@ func TestAuthHandler_Login_OK(t *testing.T) {
 }
 
 func TestAuthHandler_Login_WrongPassword(t *testing.T) {
-	h, _ := newAuthHandler(t)
+	h, _, _ := newAuthHandler(t)
 
 	if reg := doJSON(t, h.Register, `{"email":"w@example.com","password":"supersecret"}`); reg.Code != http.StatusCreated {
 		t.Fatalf("register status = %d", reg.Code)
@@ -135,7 +151,7 @@ func TestAuthHandler_Login_WrongPassword(t *testing.T) {
 }
 
 func TestAuthHandler_Login_UnknownEmail(t *testing.T) {
-	h, _ := newAuthHandler(t)
+	h, _, _ := newAuthHandler(t)
 
 	rec := doJSON(t, h.Login, `{"email":"ghost@example.com","password":"whatever!!"}`)
 	if rec.Code != http.StatusUnauthorized {
