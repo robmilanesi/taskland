@@ -6,7 +6,7 @@ A task management application, yep another one!
 
 # Features
 - [x] Task management
-- [ ] Support for projects
+- [x] Lists — grouping and sharing, see below
 - [ ] Priority — *set & validated on create/update; no sorting or filtering yet*
 - [ ] Timing set based on time word expressions (Tomorrow, last week, etc...)
 - [ ] Kanban view
@@ -20,19 +20,46 @@ Base path: `/api/v1`
 
 | Method   | Path             | Auth   | Description |
 |----------|------------------|--------|-------------|
-| `POST`   | `/auth/register` | public | Create an account. Body: `email`, `password` (min 8 chars). Returns `{id, email}` |
+| `POST`   | `/auth/register` | public | Create an account. Body: `email`, `password` (min 8 chars). Returns `{id, email}`. Also creates the account's `Inbox` list |
 | `POST`   | `/auth/login`    | public | Exchange credentials for a token. Body: `email`, `password`. Returns `{token}` |
 | `GET`    | `/tasks`         | bearer | List the caller's tasks, paginated (`?page=`, `?size=`, defaults `1` / `20`) |
-| `POST`   | `/tasks`         | bearer | Create a task. Body: `title` (required), `description`, `priority` (`0`–`3`), `due_date` (RFC 3339) |
-| `GET`    | `/tasks/{id}`    | bearer | Fetch one of the caller's tasks |
-| `PATCH`  | `/tasks/{id}`    | bearer | Partial update. Any of `title`, `description`, `completed`, `priority`, `due_date` |
+| `POST`   | `/tasks`         | bearer | Create a task. Body: `title` (required), `description`, `priority` (`0`–`3`), `due_date` (RFC 3339), `list_id` (defaults to the caller's `Inbox`) |
+| `GET`    | `/tasks/{id}`    | bearer | Fetch a task from any list the caller belongs to |
+| `PATCH`  | `/tasks/{id}`    | bearer | Partial update. Any of `title`, `description`, `completed`, `priority`, `due_date`, `list_id` |
 | `DELETE` | `/tasks/{id}`    | bearer | Delete a task (`204 No Content`) |
+| `GET`    | `/lists`         | bearer | List every list the caller belongs to (owned or shared) |
+| `POST`   | `/lists`         | bearer | Create a list. Body: `name` (required) |
+| `GET`    | `/lists/{id}`    | bearer | Fetch a list the caller belongs to |
+| `PATCH`  | `/lists/{id}`    | bearer | Rename a list. Body: `name`. Owner only |
+| `DELETE` | `/lists/{id}`    | bearer | Delete a list (`204 No Content`). Owner only; the `Inbox` list can't be deleted |
+| `GET`    | `/lists/{id}/members`           | bearer | List a list's members as `[{id, email}]`. Any member |
+| `POST`   | `/lists/{id}/members`           | bearer | Share the list with another user. Body: `email`. Owner only |
+| `DELETE` | `/lists/{id}/members/{userId}`  | bearer | Remove a member (`204 No Content`). Owner may remove anyone but themselves; a member may only remove themselves |
 
-The `/tasks` endpoints require an `Authorization: Bearer <token>` header, where
-`<token>` comes from `/auth/login`. Tasks are scoped to the authenticated user:
-another user's task is reported as `404`.
+Every endpoint but `/auth/*` requires an `Authorization: Bearer <token>`
+header, where `<token>` comes from `/auth/login`. A list or task the caller
+can't see (wrong list, not a member) is reported as `404`; a list-management
+action the caller isn't allowed to take (rename, delete, add/remove a member)
+as `403`.
 
 Errors are returned as `{"error": "..."}` with the matching HTTP status.
+
+# Lists
+
+Every task belongs to exactly one list — there is no such thing as a "loose"
+task. Every account gets an auto-created `Inbox` list at registration, which
+can't be deleted, and is where a task lands if `list_id` is omitted on create.
+
+A list has one owner (its creator) and any number of members. The permission
+model is intentionally binary, with no roles:
+
+- Only the owner can rename or delete the list, or add/remove members.
+- Any member — owner or not — has full read/write access to the list's tasks.
+
+This makes a list the natural unit for sharing: e.g. a "Spesa" (shopping)
+list shared between two people, where both can freely add, edit and complete
+tasks, but only the person who created it can rename it, delete it, or decide
+who else is on it.
 
 # Configuration
 
