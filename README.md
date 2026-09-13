@@ -8,7 +8,7 @@ A task management application, yep another one!
 - [x] Task management
 - [x] Lists — grouping and sharing, see below
 - [ ] Priority — *set & validated on create/update; no sorting or filtering yet*
-- [ ] Timing set based on time word expressions (Tomorrow, last week, etc...)
+- [x] Timing set based on time word expressions (Tomorrow, next monday, etc...)
 - [ ] Kanban view
 - [ ] Calendar view
 - [ ] Today view
@@ -23,7 +23,7 @@ Base path: `/api/v1`
 | `POST`   | `/auth/register` | public | Create an account. Body: `email`, `password` (min 8 chars). Returns `{id, email}`. Also creates the account's `Inbox` list |
 | `POST`   | `/auth/login`    | public | Exchange credentials for a token. Body: `email`, `password`. Returns `{token}` |
 | `GET`    | `/tasks`         | bearer | List the caller's tasks, paginated (`?page=`, `?size=`, defaults `1` / `20`) |
-| `POST`   | `/tasks`         | bearer | Create a task. Body: `title` (required), `description`, `priority` (`0`–`3`), `due_date` (RFC 3339), `list_id` (defaults to the caller's `Inbox`) |
+| `POST`   | `/tasks`         | bearer | Create a task. Body: `title` (required), `description`, `priority` (`0`–`3`), `due_date` (RFC 3339 or natural language, see below), `list_id` (defaults to the caller's `Inbox`) |
 | `GET`    | `/tasks/{id}`    | bearer | Fetch a task from any list the caller belongs to |
 | `PATCH`  | `/tasks/{id}`    | bearer | Partial update. Any of `title`, `description`, `completed`, `priority`, `due_date`, `list_id` |
 | `DELETE` | `/tasks/{id}`    | bearer | Delete a task (`204 No Content`) |
@@ -43,6 +43,20 @@ action the caller isn't allowed to take (rename, delete, add/remove a member)
 as `403`.
 
 Errors are returned as `{"error": "..."}` with the matching HTTP status.
+
+# Due dates
+
+`due_date` accepts either an RFC 3339 timestamp or an English natural-language
+expression, evaluated at request time:
+
+- `today`, `tomorrow`
+- a weekday name (`monday`) — the next occurrence of that day, never today itself
+- `next <weekday>` (`next monday`) — a full week after the plain weekday above
+- `in N days` (`in 5 days`)
+
+Expressions without an explicit time resolve to midnight UTC of the resulting
+date. An expression that matches none of the above and isn't valid RFC 3339 is
+rejected with `400`.
 
 # Lists
 

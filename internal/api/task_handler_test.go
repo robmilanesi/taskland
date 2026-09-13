@@ -179,13 +179,40 @@ func TestTaskHandler_Create_MalformedDueDate(t *testing.T) {
 	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
-		strings.NewReader(`{"title":"ok","due_date":"next tuesday"}`))
+		strings.NewReader(`{"title":"ok","due_date":"not a date"}`))
 	rec := httptest.NewRecorder()
 
 	h.Create(rec, withOwner(req, testOwner))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for unparseable due_date, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Create_NaturalLanguageDueDate(t *testing.T) {
+	var passed models.Task
+	repo := stubTaskRepo{createFn: func(in models.Task) (models.Task, error) {
+		passed = in
+		in.ID = uuid.New()
+		return in, nil
+	}}
+	h := NewTaskHandler(repo, newTestListRepo(t))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok","due_date":"tomorrow"}`))
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, withOwner(req, testOwner))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d; body %s", rec.Code, rec.Body)
+	}
+	wantDate := time.Now().UTC().AddDate(0, 0, 1)
+	if passed.DueDate == nil {
+		t.Fatal("expected a due date to be set")
+	}
+	if passed.DueDate.Year() != wantDate.Year() || passed.DueDate.YearDay() != wantDate.YearDay() {
+		t.Errorf("expected due date on %v, got %v", wantDate, passed.DueDate)
 	}
 }
 
