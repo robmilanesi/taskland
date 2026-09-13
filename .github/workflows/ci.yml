@@ -37,6 +37,18 @@ jobs:
       - name: fail if go mod tidy changed go.mod / go.sum
         run: git diff --exit-code -- go.mod go.sum
 
+  templ-generate:
+    name: templ generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
+      - name: fail if templ generate changed generated files
+        run: git diff --exit-code -- '*_templ.go'
+
   test:
     name: vet, build, test & coverage
     runs-on: ubuntu-latest

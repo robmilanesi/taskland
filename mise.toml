@@ -1,5 +1,6 @@
 [tools]
 go = "1.27"
+"go:github.com/a-h/templ/cmd/templ" = "0.3.1020"
 golangci-lint = "2.13.2"
 lefthook = "2.1.12"
 
@@ -14,6 +15,10 @@ run = "golangci-lint run"
 [tasks.fmt]
 description = "Format code"
 run = "golangci-lint fmt"
+
+[tasks.templ]
+description = "Generate Go code from .templ files"
+run = "templ generate"
 
 [tasks.check]
 description = "Run the full pre-commit gate"
