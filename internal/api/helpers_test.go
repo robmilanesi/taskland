@@ -3,12 +3,25 @@ package api
 import (
 	"context"
 	"net/http"
+	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
 )
+
+// newTestListRepo returns a fresh, real in-memory ListRepository. TaskHandler
+// needs one to resolve a caller's inbox; there is no stub for it since its
+// behaviour (InboxFor, membership) is exactly what the tests want to exercise.
+func newTestListRepo(t *testing.T) repository.ListRepository {
+	t.Helper()
+	store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	return store.Lists
+}
 
 // stubTaskRepo satisfies repository.TaskRepository. Its *Fn fields take only the
 // arguments a given test cares about; ctx and ownerID are dropped unless a test

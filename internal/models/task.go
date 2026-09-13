@@ -21,9 +21,13 @@ const (
 // Task is a single to-do item.
 type Task struct {
 	ID uuid.UUID `json:"id"`
-	// OwnerID is the user that owns the task. It is scoping metadata managed by
-	// the repository, never accepted from or exposed to API clients.
-	OwnerID     uuid.UUID  `json:"-"`
+	// OwnerID is the user who created the task. It no longer controls access
+	// (ListID and the list's membership do); it is informational metadata
+	// managed by the repository, never accepted from or exposed to API clients.
+	OwnerID uuid.UUID `json:"-"`
+	// ListID is the list the task belongs to. Every task belongs to exactly one
+	// list, and access is governed by membership in that list.
+	ListID      uuid.UUID  `json:"list_id"`
 	Title       string     `json:"title"`
 	Description string     `json:"description,omitempty"`
 	Completed   bool       `json:"completed"`

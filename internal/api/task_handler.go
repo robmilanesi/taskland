@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/httpx"
 	"github.com/robmilanesi/taskland/internal/models"
 	"github.com/robmilanesi/taskland/internal/repository"
@@ -12,12 +14,15 @@ import (
 
 // TaskHandler serves the HTTP endpoints for the task resource.
 type TaskHandler struct {
-	repo repository.TaskRepository
+	repo  repository.TaskRepository
+	lists repository.ListRepository
 }
 
-// NewTaskHandler returns a TaskHandler backed by the given repository.
-func NewTaskHandler(repo repository.TaskRepository) *TaskHandler {
-	return &TaskHandler{repo: repo}
+// NewTaskHandler returns a TaskHandler backed by the given repositories. lists
+// is used to resolve a task's list when a request omits one, defaulting it to
+// the caller's inbox.
+func NewTaskHandler(repo repository.TaskRepository, lists repository.ListRepository) *TaskHandler {
+	return &TaskHandler{repo: repo, lists: lists}
 }
 
 // GetTask handles GET /api/v1/tasks/{id}.
@@ -87,7 +92,19 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.repo.Create(r.Context(), ownerID, req.toModel())
+	listID, ok := h.resolveListID(w, r, ownerID, req.ListID)
+	if !ok {
+		return
+	}
+
+	toCreate := req.toModel()
+	toCreate.ListID = listID
+
+	task, err := h.repo.Create(r.Context(), ownerID, toCreate)
+	if errors.Is(err, repository.ErrTaskNotFound) {
+		httpx.WriteError(w, http.StatusBadRequest, "list_id: not a member of this list")
+		return
+	}
 	if err != nil {
 		httpx.WriteISE(w)
 		return
@@ -95,6 +112,21 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Location", "/api/v1/tasks/"+task.ID.String())
 	httpx.WriteJSON(w, http.StatusCreated, task)
+}
+
+// resolveListID returns the request's list_id, or the caller's inbox when
+// none was given.
+func (h *TaskHandler) resolveListID(w http.ResponseWriter, r *http.Request, ownerID uuid.UUID, requested *uuid.UUID) (uuid.UUID, bool) {
+	if requested != nil {
+		return *requested, true
+	}
+
+	inbox, err := h.lists.InboxFor(r.Context(), ownerID)
+	if err != nil {
+		httpx.WriteISE(w)
+		return uuid.Nil, false
+	}
+	return inbox.ID, true
 }
 
 // Delete handles DELETE /api/v1/tasks/{id}.
@@ -147,6 +179,10 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 	req.applyTo(&task)
 
 	updated, err := h.repo.Update(r.Context(), ownerID, task)
+	if errors.Is(err, repository.ErrTaskNotFound) {
+		httpx.WriteError(w, http.StatusBadRequest, "list_id: not a member of this list")
+		return
+	}
 	if err != nil {
 		httpx.WriteISE(w)
 		return

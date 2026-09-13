@@ -21,23 +21,26 @@ func newTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func newTestSQLiteRepo(t *testing.T) *sqliteTaskRepository {
-	t.Helper()
-	return newSQLiteTaskRepo(newTestDB(t))
-}
-
 // The behavioural surface is covered by testTaskRepositoryContract against both
 // implementations. This test pins the SQLite-specific on-disk time format.
 func TestSQLiteRepo_StoresTimestampsAsFixedWidthUTC(t *testing.T) {
-	repo := newTestSQLiteRepo(t)
+	ctx := context.Background()
+	db := newTestDB(t)
+	repo := newSQLiteTaskRepo(db)
+	owner := uuid.New()
 
-	created, err := repo.Create(context.Background(), uuid.New(), models.Task{Title: "t"})
+	list, err := newSQLiteListRepo(db).CreateList(ctx, owner, "list")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+
+	created, err := repo.Create(ctx, owner, models.Task{Title: "t", ListID: list.ID})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	var raw string
-	if err := repo.db.QueryRow("SELECT created_at FROM tasks WHERE id = ?", created.ID.String()).Scan(&raw); err != nil {
+	if err := db.QueryRow("SELECT created_at FROM tasks WHERE id = ?", created.ID.String()).Scan(&raw); err != nil {
 		t.Fatalf("reading raw created_at: %v", err)
 	}
 

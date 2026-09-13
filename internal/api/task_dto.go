@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/robmilanesi/taskland/internal/models"
 )
 
@@ -13,6 +15,9 @@ type createTaskRequest struct {
 	Description string          `json:"description"`
 	Priority    models.Priority `json:"priority"`
 	DueDate     *time.Time      `json:"due_date"`
+	// ListID is optional: when absent, the handler resolves it to the caller's
+	// inbox.
+	ListID *uuid.UUID `json:"list_id"`
 }
 
 func (req createTaskRequest) validate() error {
@@ -44,6 +49,8 @@ type updateTaskRequest struct {
 	Completed   *bool            `json:"completed"`
 	Priority    *models.Priority `json:"priority"`
 	DueDate     *time.Time       `json:"due_date"`
+	// ListID is optional: present, it moves the task to that list.
+	ListID *uuid.UUID `json:"list_id"`
 }
 
 func (dto updateTaskRequest) validate() error {
@@ -78,4 +85,7 @@ func (dto updateTaskRequest) applyTo(t *models.Task) {
 		t.DueDate = &due
 	}
 
+	if dto.ListID != nil {
+		t.ListID = *dto.ListID
+	}
 }

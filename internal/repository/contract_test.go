@@ -14,17 +14,28 @@ import (
 
 // testTaskRepositoryContract runs the behavioural checks that every
 // TaskRepository implementation must satisfy. mk must return a fresh, empty
-// repository each time it is called. Every check operates as a single owner
-// unless it explicitly creates a second one.
-func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskRepository) {
+// task repository and the list repository backing the same storage, each time
+// it is called.
+func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) (TaskRepository, ListRepository)) {
 	t.Helper()
 
 	ctx := context.Background()
 	owner := uuid.New()
 
-	create := func(t *testing.T, repo TaskRepository, title string) models.Task {
+	// newList creates a list owned by owner and returns its id, so task tests
+	// have somewhere valid to create into.
+	newList := func(t *testing.T, lists ListRepository, name string) uuid.UUID {
 		t.Helper()
-		task, err := repo.Create(ctx, owner, models.Task{Title: title})
+		list, err := lists.CreateList(ctx, owner, name)
+		if err != nil {
+			t.Fatalf("CreateList(%q): %v", name, err)
+		}
+		return list.ID
+	}
+
+	create := func(t *testing.T, repo TaskRepository, listID uuid.UUID, title string) models.Task {
+		t.Helper()
+		task, err := repo.Create(ctx, owner, models.Task{Title: title, ListID: listID})
 		if err != nil {
 			t.Fatalf("Create(%q): %v", title, err)
 		}
@@ -41,10 +52,11 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	}
 
 	t.Run("Create assigns id, owner and equal timestamps", func(t *testing.T) {
-		repo := mk(t)
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
 		before := time.Now().Add(-time.Second)
 
-		task, err := repo.Create(ctx, owner, models.Task{Title: "x"})
+		task, err := repo.Create(ctx, owner, models.Task{Title: "x", ListID: listID})
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
@@ -56,6 +68,9 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		if task.OwnerID != owner {
 			t.Errorf("OwnerID = %s, want %s", task.OwnerID, owner)
 		}
+		if task.ListID != listID {
+			t.Errorf("ListID = %s, want %s", task.ListID, listID)
+		}
 		if task.CreatedAt.Before(before) || task.CreatedAt.After(after) {
 			t.Errorf("CreatedAt %v outside [%v, %v]", task.CreatedAt, before, after)
 		}
@@ -64,12 +79,28 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 	})
 
+	t.Run("Create rejects a list the user does not belong to", func(t *testing.T) {
+		repo, lists := mk(t)
+		stranger := uuid.New()
+		theirList, err := lists.CreateList(ctx, stranger, "not yours")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+
+		_, err = repo.Create(ctx, owner, models.Task{Title: "x", ListID: theirList.ID})
+		if !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("expected ErrTaskNotFound, got %v", err)
+		}
+	})
+
 	t.Run("Create then GetByID roundtrips fields", func(t *testing.T) {
-		repo := mk(t)
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
 		due := time.Date(2031, 6, 1, 8, 30, 0, 0, time.UTC)
 
 		created, err := repo.Create(ctx, owner, models.Task{
 			Title:       "roundtrip",
+			ListID:      listID,
 			Description: "desc",
 			Priority:    models.PriorityHigh,
 			DueDate:     &due,
@@ -97,7 +128,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("GetByID unknown returns ErrTaskNotFound with id", func(t *testing.T) {
-		repo := mk(t)
+		repo, _ := mk(t)
 		id := uuid.NewString()
 
 		_, err := repo.GetByID(ctx, owner, id)
@@ -110,7 +141,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("GetAll empty returns no tasks", func(t *testing.T) {
-		repo := mk(t)
+		repo, _ := mk(t)
 		got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 10})
 		if err != nil {
 			t.Fatalf("GetAll: %v", err)
@@ -121,10 +152,12 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("GetAll orders by creation and paginates", func(t *testing.T) {
-		repo := mk(t)
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+
 		var ids []uuid.UUID
 		for _, title := range []string{"a", "b", "c", "d", "e"} {
-			ids = append(ids, create(t, repo, title).ID)
+			ids = append(ids, create(t, repo, listID, title).ID)
 			time.Sleep(2 * time.Millisecond)
 		}
 
@@ -154,8 +187,9 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("GetAll clamps non-positive page and size", func(t *testing.T) {
-		repo := mk(t)
-		create(t, repo, "only")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		create(t, repo, listID, "only")
 
 		got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 0, Size: 0})
 		if err != nil {
@@ -167,13 +201,15 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Count reflects inserts and deletes", func(t *testing.T) {
-		repo := mk(t)
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+
 		if n := count(t, repo); n != 0 {
 			t.Fatalf("fresh repo Count = %d, want 0", n)
 		}
 
-		a := create(t, repo, "a")
-		create(t, repo, "b")
+		a := create(t, repo, listID, "a")
+		create(t, repo, listID, "b")
 		if n := count(t, repo); n != 2 {
 			t.Fatalf("after 2 inserts Count = %d, want 2", n)
 		}
@@ -187,13 +223,15 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Update changes mutable fields, preserves id/created_at, bumps updated_at", func(t *testing.T) {
-		repo := mk(t)
-		orig := create(t, repo, "before")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		orig := create(t, repo, listID, "before")
 		time.Sleep(2 * time.Millisecond)
 
 		due := time.Date(2032, 2, 2, 0, 0, 0, 0, time.UTC)
 		updated, err := repo.Update(ctx, owner, models.Task{
 			ID:          orig.ID,
+			ListID:      listID,
 			Title:       "after",
 			Description: "new",
 			Priority:    models.PriorityLow,
@@ -229,10 +267,11 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Update unknown returns ErrTaskNotFound with id", func(t *testing.T) {
-		repo := mk(t)
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
 		id := uuid.New()
 
-		_, err := repo.Update(ctx, owner, models.Task{ID: id, Title: "x"})
+		_, err := repo.Update(ctx, owner, models.Task{ID: id, ListID: listID, Title: "x"})
 		if !errors.Is(err, ErrTaskNotFound) {
 			t.Fatalf("expected ErrTaskNotFound, got %v", err)
 		}
@@ -242,10 +281,11 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Update completion transitions completed_at", func(t *testing.T) {
-		repo := mk(t)
-		task := create(t, repo, "task")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		task := create(t, repo, listID, "task")
 
-		done, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: true})
+		done, err := repo.Update(ctx, owner, models.Task{ID: task.ID, ListID: listID, Title: "task", Completed: true})
 		if err != nil {
 			t.Fatalf("Update complete: %v", err)
 		}
@@ -254,7 +294,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 		stamp := *done.CompletedAt
 
-		again, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: true})
+		again, err := repo.Update(ctx, owner, models.Task{ID: task.ID, ListID: listID, Title: "task", Completed: true})
 		if err != nil {
 			t.Fatalf("Update still-complete: %v", err)
 		}
@@ -262,7 +302,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("completed_at changed on a no-op re-complete: %v -> %v", stamp, again.CompletedAt)
 		}
 
-		reopened, err := repo.Update(ctx, owner, models.Task{ID: task.ID, Title: "task", Completed: false})
+		reopened, err := repo.Update(ctx, owner, models.Task{ID: task.ID, ListID: listID, Title: "task", Completed: false})
 		if err != nil {
 			t.Fatalf("Update uncomplete: %v", err)
 		}
@@ -272,11 +312,12 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Update leaves other tasks untouched", func(t *testing.T) {
-		repo := mk(t)
-		keep := create(t, repo, "keep")
-		target := create(t, repo, "target")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		keep := create(t, repo, listID, "keep")
+		target := create(t, repo, listID, "target")
 
-		if _, err := repo.Update(ctx, owner, models.Task{ID: target.ID, Title: "changed"}); err != nil {
+		if _, err := repo.Update(ctx, owner, models.Task{ID: target.ID, ListID: listID, Title: "changed"}); err != nil {
 			t.Fatalf("Update: %v", err)
 		}
 
@@ -289,9 +330,50 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 	})
 
+	t.Run("Update can move a task between lists the user belongs to", func(t *testing.T) {
+		repo, lists := mk(t)
+		listA := newList(t, lists, "A")
+		listB := newList(t, lists, "B")
+		task := create(t, repo, listA, "movable")
+
+		moved, err := repo.Update(ctx, owner, models.Task{ID: task.ID, ListID: listB, Title: "movable"})
+		if err != nil {
+			t.Fatalf("Update (move): %v", err)
+		}
+		if moved.ListID != listB {
+			t.Errorf("ListID = %s, want %s", moved.ListID, listB)
+		}
+	})
+
+	t.Run("Update refuses to move a task into a list the user does not belong to", func(t *testing.T) {
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		task := create(t, repo, listID, "stays")
+
+		stranger := uuid.New()
+		theirList, err := lists.CreateList(ctx, stranger, "not yours")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+
+		_, err = repo.Update(ctx, owner, models.Task{ID: task.ID, ListID: theirList.ID, Title: "stays"})
+		if !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("expected ErrTaskNotFound, got %v", err)
+		}
+
+		unchanged, err := repo.GetByID(ctx, owner, task.ID.String())
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if unchanged.ListID != listID {
+			t.Errorf("task was moved despite the rejected update: ListID = %s", unchanged.ListID)
+		}
+	})
+
 	t.Run("Delete returns the task and removes it", func(t *testing.T) {
-		repo := mk(t)
-		task := create(t, repo, "goner")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		task := create(t, repo, listID, "goner")
 
 		deleted, err := repo.Delete(ctx, owner, task.ID.String())
 		if err != nil {
@@ -306,7 +388,7 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Delete unknown returns ErrTaskNotFound with id", func(t *testing.T) {
-		repo := mk(t)
+		repo, _ := mk(t)
 		id := uuid.NewString()
 
 		_, err := repo.Delete(ctx, owner, id)
@@ -319,9 +401,10 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 	})
 
 	t.Run("Delete leaves other tasks untouched", func(t *testing.T) {
-		repo := mk(t)
-		keep := create(t, repo, "keep")
-		gone := create(t, repo, "gone")
+		repo, lists := mk(t)
+		listID := newList(t, lists, "list")
+		keep := create(t, repo, listID, "keep")
+		gone := create(t, repo, listID, "gone")
 
 		if _, err := repo.Delete(ctx, owner, gone.ID.String()); err != nil {
 			t.Fatalf("Delete: %v", err)
@@ -334,15 +417,20 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 		}
 	})
 
-	t.Run("one owner cannot see or touch another owner's task", func(t *testing.T) {
-		repo := mk(t)
+	t.Run("a user cannot see or touch a task in a list they do not belong to", func(t *testing.T) {
+		repo, lists := mk(t)
 		other := uuid.New()
-
-		mine := create(t, repo, "mine")
-		theirs, err := repo.Create(ctx, other, models.Task{Title: "theirs"})
+		otherList, err := lists.CreateList(ctx, other, "someone else's")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+		theirs, err := repo.Create(ctx, other, models.Task{Title: "theirs", ListID: otherList.ID})
 		if err != nil {
 			t.Fatalf("Create for other owner: %v", err)
 		}
+
+		listID := newList(t, lists, "mine")
+		mine := create(t, repo, listID, "mine")
 
 		if got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 50}); err != nil {
 			t.Fatalf("GetAll: %v", err)
@@ -350,23 +438,50 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) TaskReposito
 			t.Errorf("GetAll returned %v, want just %s", idsOf(got), mine.ID)
 		}
 		if n := count(t, repo); n != 1 {
-			t.Errorf("Count for owner = %d, want 1", n)
+			t.Errorf("Count = %d, want 1", n)
 		}
 
 		if _, err := repo.GetByID(ctx, owner, theirs.ID.String()); !errors.Is(err, ErrTaskNotFound) {
-			t.Errorf("GetByID on another owner's task: got %v, want ErrTaskNotFound", err)
+			t.Errorf("GetByID on another user's task: got %v, want ErrTaskNotFound", err)
 		}
-		if _, err := repo.Update(ctx, owner, models.Task{ID: theirs.ID, Title: "hijack"}); !errors.Is(err, ErrTaskNotFound) {
-			t.Errorf("Update on another owner's task: got %v, want ErrTaskNotFound", err)
+		if _, err := repo.Update(ctx, owner, models.Task{ID: theirs.ID, ListID: otherList.ID, Title: "hijack"}); !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("Update on another user's task: got %v, want ErrTaskNotFound", err)
 		}
 		if _, err := repo.Delete(ctx, owner, theirs.ID.String()); !errors.Is(err, ErrTaskNotFound) {
-			t.Errorf("Delete on another owner's task: got %v, want ErrTaskNotFound", err)
+			t.Errorf("Delete on another user's task: got %v, want ErrTaskNotFound", err)
 		}
 
 		if still, err := repo.GetByID(ctx, other, theirs.ID.String()); err != nil {
-			t.Errorf("other owner's task should survive: %v", err)
+			t.Errorf("other user's task should survive: %v", err)
 		} else if still.Title != "theirs" {
-			t.Errorf("other owner's task was modified: %+v", still)
+			t.Errorf("other user's task was modified: %+v", still)
+		}
+	})
+
+	t.Run("every member of a shared list can read and edit its tasks", func(t *testing.T) {
+		repo, lists := mk(t)
+		friend := uuid.New()
+		listID := newList(t, lists, "shared")
+		if err := lists.AddMember(ctx, owner, listID.String(), friend); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+
+		task := create(t, repo, listID, "shopping")
+
+		if _, err := repo.GetByID(ctx, friend, task.ID.String()); err != nil {
+			t.Errorf("member cannot see the shared task: %v", err)
+		}
+
+		updated, err := repo.Update(ctx, friend, models.Task{ID: task.ID, ListID: listID, Title: "shopping", Completed: true})
+		if err != nil {
+			t.Fatalf("member cannot update the shared task: %v", err)
+		}
+		if !updated.Completed {
+			t.Error("expected the update by the member to take effect")
+		}
+
+		if got, err := repo.GetByID(ctx, owner, task.ID.String()); err != nil || !got.Completed {
+			t.Errorf("owner does not see the member's change: %+v, %v", got, err)
 		}
 	})
 }
@@ -380,13 +495,15 @@ func idsOf(tasks []models.Task) []uuid.UUID {
 }
 
 func TestTaskRepositoryContract_InMemory(t *testing.T) {
-	testTaskRepositoryContract(t, func(*testing.T) TaskRepository {
-		return newInMemoryTaskRepo()
+	testTaskRepositoryContract(t, func(*testing.T) (TaskRepository, ListRepository) {
+		lists := newInMemoryListRepo()
+		return newInMemoryTaskRepo(lists), lists
 	})
 }
 
 func TestTaskRepositoryContract_SQLite(t *testing.T) {
-	testTaskRepositoryContract(t, func(t *testing.T) TaskRepository {
-		return newSQLiteTaskRepo(newTestDB(t))
+	testTaskRepositoryContract(t, func(t *testing.T) (TaskRepository, ListRepository) {
+		db := newTestDB(t)
+		return newSQLiteTaskRepo(db), newSQLiteListRepo(db)
 	})
 }

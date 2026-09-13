@@ -13,31 +13,53 @@ import (
 
 type inMemoryTaskRepository struct {
 	tasks map[string]models.Task
+	// lists resolves list membership: a task is visible to userID only if
+	// userID belongs to the list it is in.
+	lists ListRepository
 }
 
-func newInMemoryTaskRepo() *inMemoryTaskRepository {
+func newInMemoryTaskRepo(lists ListRepository) *inMemoryTaskRepository {
 	return &inMemoryTaskRepository{
 		tasks: map[string]models.Task{},
+		lists: lists,
 	}
 }
 
-func (r *inMemoryTaskRepository) GetByID(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
+// myListIDs returns the set of list ids userID belongs to, for filtering a
+// full scan of r.tasks in GetAll/Count.
+func (r *inMemoryTaskRepository) myListIDs(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]bool, error) {
+	lists, err := r.lists.GetAllLists(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[uuid.UUID]bool, len(lists))
+	for _, list := range lists {
+		ids[list.ID] = true
+	}
+	return ids, nil
+}
+
+func (r *inMemoryTaskRepository) GetByID(ctx context.Context, userID uuid.UUID, id string) (models.Task, error) {
 	if err := ctx.Err(); err != nil {
 		return models.Task{}, err
 	}
 
 	task, ok := r.tasks[id]
-	if !ok || task.OwnerID != ownerID {
+	if !ok {
+		return models.Task{}, newErrTaskNotFound(id)
+	}
+
+	member, err := r.lists.IsMember(ctx, userID, task.ListID)
+	if err != nil {
+		return models.Task{}, err
+	}
+	if !member {
 		return models.Task{}, newErrTaskNotFound(id)
 	}
 	return task, nil
 }
 
-func (r *inMemoryTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
+func (r *inMemoryTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, params ListTasksParams) ([]models.Task, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -45,9 +67,14 @@ func (r *inMemoryTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, 
 		params.Size = 20
 	}
 
+	myLists, err := r.myListIDs(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	taskList := []models.Task{}
 	for task := range maps.Values(r.tasks) {
-		if task.OwnerID == ownerID {
+		if myLists[task.ListID] {
 			taskList = append(taskList, task)
 		}
 	}
@@ -68,39 +95,59 @@ func (r *inMemoryTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, 
 	return taskList[offset:end], nil
 }
 
-func (r *inMemoryTaskRepository) Count(ctx context.Context, ownerID uuid.UUID, _ ListTasksParams) (int, error) {
-	if err := ctx.Err(); err != nil {
+func (r *inMemoryTaskRepository) Count(ctx context.Context, userID uuid.UUID, _ ListTasksParams) (int, error) {
+	myLists, err := r.myListIDs(ctx, userID)
+	if err != nil {
 		return 0, err
 	}
 
 	n := 0
-	for _, task := range r.tasks {
-		if task.OwnerID == ownerID {
+	for task := range maps.Values(r.tasks) {
+		if myLists[task.ListID] {
 			n++
 		}
 	}
 	return n, nil
 }
 
-func (r *inMemoryTaskRepository) Create(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
+func (r *inMemoryTaskRepository) Create(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error) {
 	if err := ctx.Err(); err != nil {
 		return models.Task{}, err
 	}
 
+	member, err := r.lists.IsMember(ctx, userID, task.ListID)
+	if err != nil {
+		return models.Task{}, err
+	}
+	if !member {
+		return models.Task{}, newErrTaskNotFound(task.ListID.String())
+	}
+
 	task.ID = uuid.New()
-	task.OwnerID = ownerID
+	task.OwnerID = userID
 	task.CreatedAt = time.Now()
 	task.UpdatedAt = task.CreatedAt
 	r.tasks[task.ID.String()] = task
 	return task, nil
 }
 
-func (r *inMemoryTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
-	saved, err := r.GetByID(ctx, ownerID, task.ID.String())
+func (r *inMemoryTaskRepository) Update(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error) {
+	saved, err := r.GetByID(ctx, userID, task.ID.String())
 	if err != nil {
 		return models.Task{}, err
 	}
 
+	if task.ListID != saved.ListID {
+		member, err := r.lists.IsMember(ctx, userID, task.ListID)
+		if err != nil {
+			return models.Task{}, err
+		}
+		if !member {
+			return models.Task{}, newErrTaskNotFound(task.ListID.String())
+		}
+	}
+
+	saved.ListID = task.ListID
 	saved.Title = task.Title
 	saved.Description = task.Description
 	switch {
@@ -120,8 +167,8 @@ func (r *inMemoryTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, 
 	return saved, nil
 }
 
-func (r *inMemoryTaskRepository) Delete(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
-	task, err := r.GetByID(ctx, ownerID, id)
+func (r *inMemoryTaskRepository) Delete(ctx context.Context, userID uuid.UUID, id string) (models.Task, error) {
+	task, err := r.GetByID(ctx, userID, id)
 	if err != nil {
 		return models.Task{}, err
 	}

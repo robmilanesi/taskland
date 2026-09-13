@@ -224,8 +224,14 @@ func (r *sqliteListRepository) ListMembers(ctx context.Context, userID uuid.UUID
 }
 
 func (r *sqliteListRepository) IsMember(ctx context.Context, userID uuid.UUID, listID uuid.UUID) (bool, error) {
+	return sqliteIsListMember(ctx, r.db, userID, listID)
+}
+
+// sqliteIsListMember is shared with sqliteTaskRepository, which needs the same
+// check to authorize creating or moving a task into a list.
+func sqliteIsListMember(ctx context.Context, db *sql.DB, userID, listID uuid.UUID) (bool, error) {
 	var n int
-	err := r.db.QueryRowContext(ctx,
+	err := db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM list_members WHERE list_id = ? AND user_id = ?", listID.String(), userID.String(),
 	).Scan(&n)
 	if err != nil {

@@ -19,7 +19,12 @@ import (
 // fractional seconds so that lexicographic ordering matches chronological order.
 const sqlTimeLayout = "2006-01-02T15:04:05.000000000Z"
 
-const taskColumns = "id, owner_id, title, description, completed, completed_at, priority, due_date, created_at, updated_at"
+const taskColumns = "id, owner_id, list_id, title, description, completed, completed_at, priority, due_date, created_at, updated_at"
+
+// isMemberOfTaskList is a WHERE-clause fragment: true when userID belongs to
+// the list a task row is in. Every task query is scoped with it instead of the
+// old "owner_id = ?" check.
+const isMemberOfTaskList = "EXISTS (SELECT 1 FROM list_members WHERE list_id = tasks.list_id AND user_id = ?)"
 
 // newSQLiteDB opens the SQLite database at dsn, verifies the connection and
 // applies pending migrations. The returned handle is shared by every SQLite
@@ -51,10 +56,10 @@ func newSQLiteTaskRepo(db *sql.DB) *sqliteTaskRepository {
 	return &sqliteTaskRepository{db: db}
 }
 
-func (r *sqliteTaskRepository) GetByID(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
+func (r *sqliteTaskRepository) GetByID(ctx context.Context, userID uuid.UUID, id string) (models.Task, error) {
 	row := r.db.QueryRowContext(ctx,
-		"SELECT "+taskColumns+" FROM tasks WHERE id = ? AND owner_id = ?",
-		id, ownerID.String(),
+		"SELECT "+taskColumns+" FROM tasks WHERE id = ? AND "+isMemberOfTaskList,
+		id, userID.String(),
 	)
 
 	task, err := scanTask(row)
@@ -67,7 +72,7 @@ func (r *sqliteTaskRepository) GetByID(ctx context.Context, ownerID uuid.UUID, i
 	return task, nil
 }
 
-func (r *sqliteTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, error) {
+func (r *sqliteTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, params ListTasksParams) ([]models.Task, error) {
 	if params.Page <= 0 {
 		params.Page = 1
 	}
@@ -77,8 +82,8 @@ func (r *sqliteTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, pa
 	offset := (params.Page - 1) * params.Size
 
 	rows, err := r.db.QueryContext(ctx,
-		"SELECT "+taskColumns+" FROM tasks WHERE owner_id = ? ORDER BY created_at LIMIT ? OFFSET ?",
-		ownerID.String(), params.Size, offset,
+		"SELECT "+taskColumns+" FROM tasks WHERE "+isMemberOfTaskList+" ORDER BY created_at LIMIT ? OFFSET ?",
+		userID.String(), params.Size, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
@@ -99,10 +104,10 @@ func (r *sqliteTaskRepository) GetAll(ctx context.Context, ownerID uuid.UUID, pa
 	return tasks, nil
 }
 
-func (r *sqliteTaskRepository) Count(ctx context.Context, ownerID uuid.UUID, _ ListTasksParams) (int, error) {
+func (r *sqliteTaskRepository) Count(ctx context.Context, userID uuid.UUID, _ ListTasksParams) (int, error) {
 	var n int
 	err := r.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM tasks WHERE owner_id = ?", ownerID.String(),
+		"SELECT COUNT(*) FROM tasks WHERE "+isMemberOfTaskList, userID.String(),
 	).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count tasks: %w", err)
@@ -110,15 +115,23 @@ func (r *sqliteTaskRepository) Count(ctx context.Context, ownerID uuid.UUID, _ L
 	return n, nil
 }
 
-func (r *sqliteTaskRepository) Create(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
+func (r *sqliteTaskRepository) Create(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error) {
+	member, err := sqliteIsListMember(ctx, r.db, userID, task.ListID)
+	if err != nil {
+		return models.Task{}, err
+	}
+	if !member {
+		return models.Task{}, newErrTaskNotFound(task.ListID.String())
+	}
+
 	task.ID = uuid.New()
-	task.OwnerID = ownerID
+	task.OwnerID = userID
 	task.CreatedAt = time.Now().UTC()
 	task.UpdatedAt = task.CreatedAt
 
-	_, err := r.db.ExecContext(ctx,
-		"INSERT INTO tasks ("+taskColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		task.ID.String(), task.OwnerID.String(), task.Title, task.Description, task.Completed,
+	_, err = r.db.ExecContext(ctx,
+		"INSERT INTO tasks ("+taskColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		task.ID.String(), task.OwnerID.String(), task.ListID.String(), task.Title, task.Description, task.Completed,
 		formatNullTime(task.CompletedAt), task.Priority, formatNullTime(task.DueDate),
 		formatTime(task.CreatedAt), formatTime(task.UpdatedAt),
 	)
@@ -128,12 +141,23 @@ func (r *sqliteTaskRepository) Create(ctx context.Context, ownerID uuid.UUID, ta
 	return task, nil
 }
 
-func (r *sqliteTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error) {
-	saved, err := r.GetByID(ctx, ownerID, task.ID.String())
+func (r *sqliteTaskRepository) Update(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error) {
+	saved, err := r.GetByID(ctx, userID, task.ID.String())
 	if err != nil {
 		return models.Task{}, err
 	}
 
+	if task.ListID != saved.ListID {
+		member, err := sqliteIsListMember(ctx, r.db, userID, task.ListID)
+		if err != nil {
+			return models.Task{}, err
+		}
+		if !member {
+			return models.Task{}, newErrTaskNotFound(task.ListID.String())
+		}
+	}
+
+	saved.ListID = task.ListID
 	saved.Title = task.Title
 	saved.Description = task.Description
 	switch {
@@ -150,10 +174,9 @@ func (r *sqliteTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, ta
 	saved.UpdatedAt = time.Now().UTC()
 
 	_, err = r.db.ExecContext(ctx,
-		"UPDATE tasks SET title = ?, description = ?, completed = ?, completed_at = ?, priority = ?, due_date = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-		saved.Title, saved.Description, saved.Completed, formatNullTime(saved.CompletedAt),
-		saved.Priority, formatNullTime(saved.DueDate), formatTime(saved.UpdatedAt),
-		saved.ID.String(), ownerID.String(),
+		"UPDATE tasks SET list_id = ?, title = ?, description = ?, completed = ?, completed_at = ?, priority = ?, due_date = ?, updated_at = ? WHERE id = ?",
+		saved.ListID.String(), saved.Title, saved.Description, saved.Completed, formatNullTime(saved.CompletedAt),
+		saved.Priority, formatNullTime(saved.DueDate), formatTime(saved.UpdatedAt), saved.ID.String(),
 	)
 	if err != nil {
 		return models.Task{}, fmt.Errorf("update task %q: %w", task.ID, err)
@@ -161,10 +184,10 @@ func (r *sqliteTaskRepository) Update(ctx context.Context, ownerID uuid.UUID, ta
 	return saved, nil
 }
 
-func (r *sqliteTaskRepository) Delete(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error) {
+func (r *sqliteTaskRepository) Delete(ctx context.Context, userID uuid.UUID, id string) (models.Task, error) {
 	row := r.db.QueryRowContext(ctx,
-		"DELETE FROM tasks WHERE id = ? AND owner_id = ? RETURNING "+taskColumns,
-		id, ownerID.String(),
+		"DELETE FROM tasks WHERE id = ? AND "+isMemberOfTaskList+" RETURNING "+taskColumns,
+		id, userID.String(),
 	)
 
 	task, err := scanTask(row)
@@ -187,6 +210,7 @@ func scanTask(s rowScanner) (models.Task, error) {
 		task        models.Task
 		idStr       string
 		ownerIDStr  string
+		listIDStr   string
 		completedAt sql.NullString
 		dueDate     sql.NullString
 		createdAt   string
@@ -194,7 +218,7 @@ func scanTask(s rowScanner) (models.Task, error) {
 	)
 
 	err := s.Scan(
-		&idStr, &ownerIDStr, &task.Title, &task.Description, &task.Completed,
+		&idStr, &ownerIDStr, &listIDStr, &task.Title, &task.Description, &task.Completed,
 		&completedAt, &task.Priority, &dueDate, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -206,6 +230,9 @@ func scanTask(s rowScanner) (models.Task, error) {
 	}
 	if task.OwnerID, err = uuid.Parse(ownerIDStr); err != nil {
 		return models.Task{}, fmt.Errorf("parse owner id %q: %w", ownerIDStr, err)
+	}
+	if task.ListID, err = uuid.Parse(listIDStr); err != nil {
+		return models.Task{}, fmt.Errorf("parse list id %q: %w", listIDStr, err)
 	}
 
 	if task.CompletedAt, err = parseNullTime(completedAt); err != nil {

@@ -26,7 +26,7 @@ import (
 // The /auth routes are public; every other route requires a valid Bearer token
 // and every route runs through the RequestID, RequestLogger and Recover middleware.
 func NewRouter(store *repository.Store, issuer *auth.Issuer) http.Handler {
-	th := NewTaskHandler(store.Tasks)
+	th := NewTaskHandler(store.Tasks, store.Lists)
 	ah := NewAuthHandler(store, issuer)
 	lh := NewListHandler(store.Lists)
 

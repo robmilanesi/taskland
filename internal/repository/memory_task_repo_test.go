@@ -16,8 +16,13 @@ import (
 // the contract cannot express portably.
 
 func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
-	repo := newInMemoryTaskRepo()
+	lists := newInMemoryListRepo()
+	repo := newInMemoryTaskRepo(lists)
 	owner := uuid.New()
+	list, err := lists.CreateList(context.Background(), owner, "list")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
 
 	base := time.Now()
 	ids := make([]uuid.UUID, 5)
@@ -27,6 +32,7 @@ func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
 		repo.tasks[id.String()] = models.Task{
 			ID:        id,
 			OwnerID:   owner,
+			ListID:    list.ID,
 			Title:     title,
 			CreatedAt: base.Add(time.Duration(i) * time.Second),
 		}
@@ -47,14 +53,20 @@ func TestInMemoryTaskRepo_GetAll_SortsByCreatedAt(t *testing.T) {
 }
 
 func TestInMemoryTaskRepo_Update_ManagesTimestampsItself(t *testing.T) {
-	repo := newInMemoryTaskRepo()
+	lists := newInMemoryListRepo()
+	repo := newInMemoryTaskRepo(lists)
 	owner := uuid.New()
+	list, err := lists.CreateList(context.Background(), owner, "list")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
 
 	created := time.Now().Add(-24 * time.Hour)
 	id := uuid.New()
 	repo.tasks[id.String()] = models.Task{
 		ID:        id,
 		OwnerID:   owner,
+		ListID:    list.ID,
 		Title:     "saved",
 		CreatedAt: created,
 		UpdatedAt: created,
@@ -63,6 +75,7 @@ func TestInMemoryTaskRepo_Update_ManagesTimestampsItself(t *testing.T) {
 	before := time.Now()
 	result, err := repo.Update(context.Background(), owner, models.Task{
 		ID:        id,
+		ListID:    list.ID,
 		Title:     "updated",
 		CreatedAt: time.Now().Add(10 * time.Hour),
 		UpdatedAt: time.Now().Add(-10 * time.Hour),

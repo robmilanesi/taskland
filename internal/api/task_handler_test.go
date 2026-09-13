@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,7 +23,7 @@ func TestTaskHandler_Create_Created(t *testing.T) {
 		in.ID = uuid.New()
 		return in, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"  Buy milk  "}`))
@@ -54,7 +55,7 @@ func TestTaskHandler_Create_ValidationError(t *testing.T) {
 		t.Fatal("repo.Create must not be called on invalid input")
 		return models.Task{}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"   "}`))
@@ -72,7 +73,7 @@ func TestTaskHandler_Create_MalformedJSON(t *testing.T) {
 		t.Fatal("repo.Create must not be called on bad JSON")
 		return models.Task{}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":`))
@@ -89,7 +90,7 @@ func TestTaskHandler_Create_UnknownField(t *testing.T) {
 	repo := stubTaskRepo{createFn: func(models.Task) (models.Task, error) {
 		return models.Task{}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"ok","done":true}`))
@@ -106,7 +107,7 @@ func TestTaskHandler_Create_RepoError(t *testing.T) {
 	repo := stubTaskRepo{createFn: func(models.Task) (models.Task, error) {
 		return models.Task{}, errors.New("boom")
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"ok"}`))
@@ -126,7 +127,7 @@ func TestTaskHandler_Create_WithAllFields(t *testing.T) {
 		in.ID = uuid.New()
 		return in, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	due := time.Date(2030, 1, 2, 15, 4, 5, 0, time.UTC)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
@@ -157,7 +158,7 @@ func TestTaskHandler_Create_PriorityOutOfRange(t *testing.T) {
 		t.Fatal("repo.Create must not be called on invalid priority")
 		return models.Task{}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"ok","priority":9}`))
@@ -175,7 +176,7 @@ func TestTaskHandler_Create_MalformedDueDate(t *testing.T) {
 		t.Fatal("repo.Create must not be called on unparseable due_date")
 		return models.Task{}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
 		strings.NewReader(`{"title":"ok","due_date":"next tuesday"}`))
@@ -188,13 +189,82 @@ func TestTaskHandler_Create_MalformedDueDate(t *testing.T) {
 	}
 }
 
+func TestTaskHandler_Create_DefaultsToCallersInbox(t *testing.T) {
+	var passed models.Task
+	repo := stubTaskRepo{createFn: func(in models.Task) (models.Task, error) {
+		passed = in
+		in.ID = uuid.New()
+		return in, nil
+	}}
+	lists := newTestListRepo(t)
+	h := NewTaskHandler(repo, lists)
+
+	req := withOwner(httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok"}`)), testOwner)
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	inbox, err := lists.InboxFor(context.Background(), testOwner)
+	if err != nil {
+		t.Fatalf("InboxFor: %v", err)
+	}
+	if passed.ListID != inbox.ID {
+		t.Errorf("ListID = %s, want the caller's inbox %s", passed.ListID, inbox.ID)
+	}
+}
+
+func TestTaskHandler_Create_WithExplicitListID(t *testing.T) {
+	var passed models.Task
+	repo := stubTaskRepo{createFn: func(in models.Task) (models.Task, error) {
+		passed = in
+		in.ID = uuid.New()
+		return in, nil
+	}}
+	h := NewTaskHandler(repo, newTestListRepo(t))
+	listID := uuid.New()
+
+	req := withOwner(httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok","list_id":"`+listID.String()+`"}`)), testOwner)
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	if passed.ListID != listID {
+		t.Errorf("ListID = %s, want %s", passed.ListID, listID)
+	}
+}
+
+func TestTaskHandler_Create_ListNotAccessible(t *testing.T) {
+	repo := stubTaskRepo{createFn: func(models.Task) (models.Task, error) {
+		return models.Task{}, repository.ErrTaskNotFound
+	}}
+	h := NewTaskHandler(repo, newTestListRepo(t))
+
+	req := withOwner(httptest.NewRequest(http.MethodPost, "/api/v1/tasks",
+		strings.NewReader(`{"title":"ok","list_id":"`+uuid.NewString()+`"}`)), testOwner)
+	rec := httptest.NewRecorder()
+
+	h.Create(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for an inaccessible list, got %d", rec.Code)
+	}
+}
+
 func TestTaskHandler_Delete_NoContent(t *testing.T) {
 	var gotID string
 	repo := stubTaskRepo{deleteFn: func(id string) (models.Task, error) {
 		gotID = id
 		return models.Task{ID: uuid.New(), Title: "gone"}, nil
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/abc", nil)
 	req.SetPathValue("id", "abc")
@@ -217,7 +287,7 @@ func TestTaskHandler_Delete_NotFound(t *testing.T) {
 	repo := stubTaskRepo{deleteFn: func(string) (models.Task, error) {
 		return models.Task{}, repository.ErrTaskNotFound
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/missing", nil)
 	req.SetPathValue("id", "missing")
@@ -241,7 +311,7 @@ func TestTaskHandler_Delete_RepoError(t *testing.T) {
 	repo := stubTaskRepo{deleteFn: func(string) (models.Task, error) {
 		return models.Task{}, errors.New("boom")
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/abc", nil)
 	req.SetPathValue("id", "abc")
@@ -260,7 +330,7 @@ func TestTaskHandler_Delete_MissingPathValue(t *testing.T) {
 		gotID = id
 		return models.Task{}, repository.ErrTaskNotFound
 	}}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	// no SetPathValue: r.PathValue("id") returns ""
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/", nil)
@@ -291,7 +361,7 @@ func TestTaskHandler_Update_OK(t *testing.T) {
 			return in, nil
 		},
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/"+existing.ID.String(),
 		strings.NewReader(`{"title":"  new title  ","completed":true}`))
@@ -334,7 +404,7 @@ func TestTaskHandler_Update_PartialLeavesOtherFields(t *testing.T) {
 		getByIDFn: func(string) (models.Task, error) { return existing, nil },
 		updateFn:  func(in models.Task) (models.Task, error) { updatedArg = in; return in, nil },
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
 		strings.NewReader(`{"description":"new desc"}`))
@@ -367,7 +437,7 @@ func TestTaskHandler_Update_NotFound(t *testing.T) {
 			return models.Task{}, nil
 		},
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/missing",
 		strings.NewReader(`{"title":"x"}`))
@@ -388,7 +458,7 @@ func TestTaskHandler_Update_MalformedJSON(t *testing.T) {
 			return models.Task{}, nil
 		},
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
 		strings.NewReader(`{"title":`))
@@ -409,7 +479,7 @@ func TestTaskHandler_Update_UnknownField(t *testing.T) {
 			return models.Task{}, nil
 		},
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
 		strings.NewReader(`{"nope":1}`))
@@ -430,7 +500,7 @@ func TestTaskHandler_Update_BlankTitleRejected(t *testing.T) {
 			return models.Task{}, nil
 		},
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
 		strings.NewReader(`{"title":"   "}`))
@@ -449,7 +519,7 @@ func TestTaskHandler_Update_RepoError(t *testing.T) {
 		getByIDFn: func(string) (models.Task, error) { return models.Task{ID: uuid.New()}, nil },
 		updateFn:  func(models.Task) (models.Task, error) { return models.Task{}, errors.New("boom") },
 	}
-	h := NewTaskHandler(repo)
+	h := NewTaskHandler(repo, newTestListRepo(t))
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/x",
 		strings.NewReader(`{"title":"x"}`))
@@ -460,5 +530,53 @@ func TestTaskHandler_Update_RepoError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestTaskHandler_Update_MovesList(t *testing.T) {
+	existing := models.Task{ID: uuid.New(), Title: "task", ListID: uuid.New()}
+	newListID := uuid.New()
+	var passed models.Task
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) { return existing, nil },
+		updateFn: func(in models.Task) (models.Task, error) {
+			passed = in
+			return in, nil
+		},
+	}
+	h := NewTaskHandler(repo, newTestListRepo(t))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/"+existing.ID.String(),
+		strings.NewReader(`{"list_id":"`+newListID.String()+`"}`))
+	req.SetPathValue("id", existing.ID.String())
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, withOwner(req, testOwner))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if passed.ListID != newListID {
+		t.Errorf("ListID = %s, want %s", passed.ListID, newListID)
+	}
+}
+
+func TestTaskHandler_Update_MoveToInaccessibleList(t *testing.T) {
+	existing := models.Task{ID: uuid.New(), Title: "task", ListID: uuid.New()}
+	repo := stubTaskRepo{
+		getByIDFn: func(string) (models.Task, error) { return existing, nil },
+		updateFn:  func(models.Task) (models.Task, error) { return models.Task{}, repository.ErrTaskNotFound },
+	}
+	h := NewTaskHandler(repo, newTestListRepo(t))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/"+existing.ID.String(),
+		strings.NewReader(`{"list_id":"`+uuid.NewString()+`"}`))
+	req.SetPathValue("id", existing.ID.String())
+	rec := httptest.NewRecorder()
+
+	h.Update(rec, withOwner(req, testOwner))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for an inaccessible list, got %d", rec.Code)
 	}
 }

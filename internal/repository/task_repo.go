@@ -26,15 +26,22 @@ type ListTasksParams struct {
 }
 
 // TaskRepository is the storage abstraction for tasks. Every method is scoped to
-// a single owner: rows belonging to other users are invisible, and a lookup for
-// one of them is reported as ErrTaskNotFound.
+// userID, the user acting on behalf of the request: a task is visible only
+// through a list userID is a member of, and a lookup for one it cannot reach is
+// reported as ErrTaskNotFound.
+//
+// Create requires task.ListID to already be a list userID belongs to (the
+// caller resolves "no list given" to the user's inbox before calling); Update
+// may change ListID to move the task, but only into another list userID
+// belongs to. Both report ErrTaskNotFound for an inaccessible list, exactly
+// like an inaccessible task.
 type TaskRepository interface {
-	GetByID(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error)
-	GetAll(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, error)
-	Count(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) (int, error)
-	Create(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error)
-	Update(ctx context.Context, ownerID uuid.UUID, task models.Task) (models.Task, error)
-	Delete(ctx context.Context, ownerID uuid.UUID, id string) (models.Task, error)
+	GetByID(ctx context.Context, userID uuid.UUID, id string) (models.Task, error)
+	GetAll(ctx context.Context, userID uuid.UUID, params ListTasksParams) ([]models.Task, error)
+	Count(ctx context.Context, userID uuid.UUID, params ListTasksParams) (int, error)
+	Create(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error)
+	Update(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error)
+	Delete(ctx context.Context, userID uuid.UUID, id string) (models.Task, error)
 }
 
 // Config holds the settings needed to build a Store.
@@ -70,7 +77,7 @@ func NewStore(cfg Config) (*Store, error) {
 		users := newInMemoryUserRepo()
 		lists := newInMemoryListRepo()
 		return &Store{
-			Tasks:           newInMemoryTaskRepo(),
+			Tasks:           newInMemoryTaskRepo(lists),
 			Users:           users,
 			Lists:           lists,
 			registerAccount: registerAccountSequential(users, lists),

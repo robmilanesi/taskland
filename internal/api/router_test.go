@@ -23,6 +23,21 @@ const (
 	authForeign = "foreign"
 )
 
+// setupTaskIn creates a task for owner in their inbox, creating the inbox if
+// this is the first thing owner has ever needed.
+func setupTaskIn(t *testing.T, store *repository.Store, owner uuid.UUID, title string) uuid.UUID {
+	t.Helper()
+	inbox, err := store.Lists.InboxFor(context.Background(), owner)
+	if err != nil {
+		t.Fatalf("setup InboxFor: %v", err)
+	}
+	task, err := store.Tasks.Create(context.Background(), owner, models.Task{Title: title, ListID: inbox.ID})
+	if err != nil {
+		t.Fatalf("setup Create: %v", err)
+	}
+	return task.ID
+}
+
 func TestRouter_Routes(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -30,18 +45,14 @@ func TestRouter_Routes(t *testing.T) {
 		path       func(id uuid.UUID) string
 		body       string
 		auth       string
-		setup      func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID
+		setup      func(t *testing.T, store *repository.Store, owner uuid.UUID) uuid.UUID
 		wantStatus int
 	}{
 		{
 			name:   "GET task by id - found",
 			method: http.MethodGet,
-			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
-				task, err := repo.Create(context.Background(), owner, models.Task{Title: "test"})
-				if err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				return task.ID
+			setup: func(t *testing.T, store *repository.Store, owner uuid.UUID) uuid.UUID {
+				return setupTaskIn(t, store, owner, "test")
 			},
 			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
 			wantStatus: http.StatusOK,
@@ -68,12 +79,8 @@ func TestRouter_Routes(t *testing.T) {
 		{
 			name:   "PATCH update task",
 			method: http.MethodPatch,
-			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
-				task, err := repo.Create(context.Background(), owner, models.Task{Title: "to update"})
-				if err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				return task.ID
+			setup: func(t *testing.T, store *repository.Store, owner uuid.UUID) uuid.UUID {
+				return setupTaskIn(t, store, owner, "to update")
 			},
 			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
 			body:       `{"title":"updated"}`,
@@ -82,12 +89,8 @@ func TestRouter_Routes(t *testing.T) {
 		{
 			name:   "DELETE task",
 			method: http.MethodDelete,
-			setup: func(t *testing.T, repo repository.TaskRepository, owner uuid.UUID) uuid.UUID {
-				task, err := repo.Create(context.Background(), owner, models.Task{Title: "to delete"})
-				if err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				return task.ID
+			setup: func(t *testing.T, store *repository.Store, owner uuid.UUID) uuid.UUID {
+				return setupTaskIn(t, store, owner, "to delete")
 			},
 			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
 			wantStatus: http.StatusNoContent,
@@ -109,12 +112,8 @@ func TestRouter_Routes(t *testing.T) {
 		{
 			name:   "cannot GET another owner's task",
 			method: http.MethodGet,
-			setup: func(t *testing.T, repo repository.TaskRepository, _ uuid.UUID) uuid.UUID {
-				task, err := repo.Create(context.Background(), uuid.New(), models.Task{Title: "not yours"})
-				if err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				return task.ID
+			setup: func(t *testing.T, store *repository.Store, _ uuid.UUID) uuid.UUID {
+				return setupTaskIn(t, store, uuid.New(), "not yours")
 			},
 			path:       func(id uuid.UUID) string { return "/api/v1/tasks/" + id.String() },
 			wantStatus: http.StatusNotFound,
@@ -150,7 +149,7 @@ func TestRouter_Routes(t *testing.T) {
 
 			var id uuid.UUID
 			if tt.setup != nil {
-				id = tt.setup(t, store.Tasks, owner)
+				id = tt.setup(t, store, owner)
 			}
 
 			var req *http.Request

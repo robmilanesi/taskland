@@ -32,7 +32,15 @@ func TestNewStore_SQLite(t *testing.T) {
 	ctx := context.Background()
 	owner := uuid.New()
 
-	task, err := store.Tasks.Create(ctx, owner, models.Task{Title: "via store"})
+	list, err := store.Lists.CreateList(ctx, owner, "via store")
+	if err != nil {
+		t.Fatalf("CreateList: %v", err)
+	}
+	if _, err := store.Lists.GetListByID(ctx, owner, list.ID.String()); err != nil {
+		t.Fatalf("GetListByID: %v", err)
+	}
+
+	task, err := store.Tasks.Create(ctx, owner, models.Task{Title: "via store", ListID: list.ID})
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
 	}
@@ -46,14 +54,6 @@ func TestNewStore_SQLite(t *testing.T) {
 	}
 	if _, err := store.Users.GetUserByID(ctx, user.ID); err != nil {
 		t.Fatalf("GetUserByID: %v", err)
-	}
-
-	list, err := store.Lists.CreateList(ctx, owner, "via store")
-	if err != nil {
-		t.Fatalf("CreateList: %v", err)
-	}
-	if _, err := store.Lists.GetListByID(ctx, owner, list.ID.String()); err != nil {
-		t.Fatalf("GetListByID: %v", err)
 	}
 }
 
