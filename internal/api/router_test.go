@@ -300,4 +300,192 @@ func TestRouter_ListRoutes(t *testing.T) {
 			t.Errorf("status = %d, want 204; body %s", rec.Code, rec.Body)
 		}
 	})
+
+	t.Run("owner adds a member by email", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner := registerTestUser(t, store, "owner@example.com")
+		friend := registerTestUser(t, store, "friend@example.com")
+		list, err := store.Lists.CreateList(context.Background(), owner.ID, "shared")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/"+list.ID.String()+"/members",
+			strings.NewReader(`{"email":"friend@example.com"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, owner.ID))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201; body %s", rec.Code, rec.Body)
+		}
+		if isMember, err := store.Lists.IsMember(context.Background(), friend.ID, list.ID); err != nil || !isMember {
+			t.Errorf("friend should be a member: %v, %v", isMember, err)
+		}
+	})
+
+	t.Run("a non-owner member cannot add members", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner := registerTestUser(t, store, "owner@example.com")
+		member := registerTestUser(t, store, "member@example.com")
+		registerTestUser(t, store, "outsider@example.com")
+		list, err := store.Lists.CreateList(context.Background(), owner.ID, "shared")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+		if err := store.Lists.AddMember(context.Background(), owner.ID, list.ID.String(), member.ID); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/lists/"+list.ID.String()+"/members",
+			strings.NewReader(`{"email":"outsider@example.com"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, member.ID))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+	})
+
+	t.Run("a member can leave, owner cannot be removed", func(t *testing.T) {
+		router, store, issuer := newRouterAndStore(t)
+		owner := registerTestUser(t, store, "owner@example.com")
+		member := registerTestUser(t, store, "member@example.com")
+		list, err := store.Lists.CreateList(context.Background(), owner.ID, "shared")
+		if err != nil {
+			t.Fatalf("CreateList: %v", err)
+		}
+		if err := store.Lists.AddMember(context.Background(), owner.ID, list.ID.String(), member.ID); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+
+		leaveReq := httptest.NewRequest(http.MethodDelete, "/api/v1/lists/"+list.ID.String()+"/members/"+member.ID.String(), nil)
+		leaveReq.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, member.ID))
+		leaveRec := httptest.NewRecorder()
+		router.ServeHTTP(leaveRec, leaveReq)
+		if leaveRec.Code != http.StatusNoContent {
+			t.Fatalf("self-leave status = %d, want 204; body %s", leaveRec.Code, leaveRec.Body)
+		}
+
+		removeOwnerReq := httptest.NewRequest(http.MethodDelete, "/api/v1/lists/"+list.ID.String()+"/members/"+owner.ID.String(), nil)
+		removeOwnerReq.Header.Set("Authorization", "Bearer "+tokenFor(t, issuer, owner.ID))
+		removeOwnerRec := httptest.NewRecorder()
+		router.ServeHTTP(removeOwnerRec, removeOwnerReq)
+		if removeOwnerRec.Code != http.StatusForbidden {
+			t.Errorf("removing the owner status = %d, want 403", removeOwnerRec.Code)
+		}
+	})
+}
+
+// TestRouter_ListSharingE2E walks through the full sharing scenario from
+// next.md: A creates a list and a task, shares it with B, B sees and adds to
+// it, then A revokes B's access and B loses visibility again.
+func TestRouter_ListSharingE2E(t *testing.T) {
+	store, err := repository.NewStore(repository.Config{Type: repository.TaskRepoInMemory})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	issuer := auth.NewIssuer(routerTestSecret, time.Hour)
+	router := NewRouter(store, issuer)
+	ctx := context.Background()
+
+	a := registerTestUser(t, store, "a@example.com")
+	b := registerTestUser(t, store, "b@example.com")
+	tokenA, err := issuer.Issue(a.ID)
+	if err != nil {
+		t.Fatalf("Issue A: %v", err)
+	}
+	tokenB, err := issuer.Issue(b.ID)
+	if err != nil {
+		t.Fatalf("Issue B: %v", err)
+	}
+
+	do := func(token, method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		var req *http.Request
+		if body != "" {
+			req = httptest.NewRequest(method, path, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req = httptest.NewRequest(method, path, nil)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// A creates the "Spesa" list.
+	createList := do(tokenA, http.MethodPost, "/api/v1/lists", `{"name":"Spesa"}`)
+	if createList.Code != http.StatusCreated {
+		t.Fatalf("create list: status = %d; body %s", createList.Code, createList.Body)
+	}
+	list, err := store.Lists.GetAllLists(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("GetAllLists: %v", err)
+	}
+	var spesaID uuid.UUID
+	for _, l := range list {
+		if l.Name == "Spesa" {
+			spesaID = l.ID
+		}
+	}
+	if spesaID == uuid.Nil {
+		t.Fatalf("Spesa list not found among A's lists: %+v", list)
+	}
+
+	// A creates a task in that list.
+	createTask := do(tokenA, http.MethodPost, "/api/v1/tasks", `{"title":"milk","list_id":"`+spesaID.String()+`"}`)
+	if createTask.Code != http.StatusCreated {
+		t.Fatalf("create task: status = %d; body %s", createTask.Code, createTask.Body)
+	}
+
+	// A adds B as a member.
+	addMember := do(tokenA, http.MethodPost, "/api/v1/lists/"+spesaID.String()+"/members", `{"email":"b@example.com"}`)
+	if addMember.Code != http.StatusCreated {
+		t.Fatalf("add member: status = %d; body %s", addMember.Code, addMember.Body)
+	}
+
+	// B now sees the list in GET /lists and the task in GET /tasks.
+	bLists := do(tokenB, http.MethodGet, "/api/v1/lists", "")
+	if bLists.Code != http.StatusOK || !strings.Contains(bLists.Body.String(), "Spesa") {
+		t.Fatalf("B's lists should include Spesa: status %d, body %s", bLists.Code, bLists.Body)
+	}
+	bTasks := do(tokenB, http.MethodGet, "/api/v1/tasks", "")
+	if bTasks.Code != http.StatusOK || !strings.Contains(bTasks.Body.String(), "milk") {
+		t.Fatalf("B's tasks should include milk: status %d, body %s", bTasks.Code, bTasks.Body)
+	}
+
+	// B adds a task to the shared list; A sees it.
+	bAddsTask := do(tokenB, http.MethodPost, "/api/v1/tasks", `{"title":"eggs","list_id":"`+spesaID.String()+`"}`)
+	if bAddsTask.Code != http.StatusCreated {
+		t.Fatalf("B create task: status = %d; body %s", bAddsTask.Code, bAddsTask.Body)
+	}
+	aTasks := do(tokenA, http.MethodGet, "/api/v1/tasks", "")
+	if aTasks.Code != http.StatusOK || !strings.Contains(aTasks.Body.String(), "eggs") {
+		t.Fatalf("A's tasks should include eggs: status %d, body %s", aTasks.Code, aTasks.Body)
+	}
+
+	// A removes B from the list.
+	removeMember := do(tokenA, http.MethodDelete, "/api/v1/lists/"+spesaID.String()+"/members/"+b.ID.String(), "")
+	if removeMember.Code != http.StatusNoContent {
+		t.Fatalf("remove member: status = %d; body %s", removeMember.Code, removeMember.Body)
+	}
+
+	// B no longer sees the list or its tasks.
+	bListsAfter := do(tokenB, http.MethodGet, "/api/v1/lists", "")
+	if bListsAfter.Code != http.StatusOK || strings.Contains(bListsAfter.Body.String(), "Spesa") {
+		t.Fatalf("B should no longer see Spesa: status %d, body %s", bListsAfter.Code, bListsAfter.Body)
+	}
+	bGetList := do(tokenB, http.MethodGet, "/api/v1/lists/"+spesaID.String(), "")
+	if bGetList.Code != http.StatusNotFound {
+		t.Errorf("B GET the list directly: status = %d, want 404", bGetList.Code)
+	}
+	bTasksAfter := do(tokenB, http.MethodGet, "/api/v1/tasks", "")
+	if bTasksAfter.Code != http.StatusOK || strings.Contains(bTasksAfter.Body.String(), "milk") || strings.Contains(bTasksAfter.Body.String(), "eggs") {
+		t.Fatalf("B should no longer see any Spesa task: status %d, body %s", bTasksAfter.Code, bTasksAfter.Body)
+	}
 }

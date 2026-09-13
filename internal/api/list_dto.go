@@ -18,3 +18,17 @@ func (req listRequest) validate() error {
 	}
 	return nil
 }
+
+// addMemberRequest is the body for POST /api/v1/lists/{id}/members: members
+// are added by email, not by user id, since that is what the owner actually
+// knows about the person they are sharing with.
+type addMemberRequest struct {
+	Email string `json:"email"`
+}
+
+func (req addMemberRequest) validate() error {
+	if strings.TrimSpace(req.Email) == "" {
+		return errors.New("email is required")
+	}
+	return nil
+}

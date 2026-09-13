@@ -17,18 +17,21 @@ import (
 //	POST   /api/v1/tasks         - create a new task
 //	PATCH  /api/v1/tasks/{id}    - partially update a task by ID
 //	DELETE /api/v1/tasks/{id}    - delete a task by ID
-//	GET    /api/v1/lists/{id}    - retrieve a single list by ID
-//	GET    /api/v1/lists         - retrieve every list the caller belongs to
-//	POST   /api/v1/lists         - create a new list
-//	PATCH  /api/v1/lists/{id}    - rename a list (owner only)
-//	DELETE /api/v1/lists/{id}    - delete a list (owner only, never the inbox)
+//	GET    /api/v1/lists/{id}            - retrieve a single list by ID
+//	GET    /api/v1/lists                 - retrieve every list the caller belongs to
+//	POST   /api/v1/lists                 - create a new list
+//	PATCH  /api/v1/lists/{id}             - rename a list (owner only)
+//	DELETE /api/v1/lists/{id}             - delete a list (owner only, never the inbox)
+//	GET    /api/v1/lists/{id}/members     - list a list's members
+//	POST   /api/v1/lists/{id}/members     - add a member by email (owner only)
+//	DELETE /api/v1/lists/{id}/members/{userId} - remove a member (owner, or the member themselves)
 //
 // The /auth routes are public; every other route requires a valid Bearer token
 // and every route runs through the RequestID, RequestLogger and Recover middleware.
 func NewRouter(store *repository.Store, issuer *auth.Issuer) http.Handler {
 	th := NewTaskHandler(store.Tasks, store.Lists)
 	ah := NewAuthHandler(store, issuer)
-	lh := NewListHandler(store.Lists)
+	lh := NewListHandler(store.Lists, store.Users)
 
 	authed := Authenticate(issuer)
 
@@ -48,6 +51,10 @@ func NewRouter(store *repository.Store, issuer *auth.Issuer) http.Handler {
 	mux.Handle("POST /api/v1/lists", authed(http.HandlerFunc(lh.Create)))
 	mux.Handle("PATCH /api/v1/lists/{id}", authed(http.HandlerFunc(lh.Update)))
 	mux.Handle("DELETE /api/v1/lists/{id}", authed(http.HandlerFunc(lh.Delete)))
+
+	mux.Handle("GET /api/v1/lists/{id}/members", authed(http.HandlerFunc(lh.Members)))
+	mux.Handle("POST /api/v1/lists/{id}/members", authed(http.HandlerFunc(lh.AddMember)))
+	mux.Handle("DELETE /api/v1/lists/{id}/members/{userId}", authed(http.HandlerFunc(lh.RemoveMember)))
 
 	return httpx.Chain(mux, httpx.RequestID, httpx.RequestLogger, httpx.Recover)
 }
