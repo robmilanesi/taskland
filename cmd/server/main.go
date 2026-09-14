@@ -16,6 +16,7 @@ import (
 	"github.com/robmilanesi/taskland/internal/auth"
 	"github.com/robmilanesi/taskland/internal/config"
 	"github.com/robmilanesi/taskland/internal/repository"
+	"github.com/robmilanesi/taskland/internal/web"
 )
 
 func main() {
@@ -49,9 +50,13 @@ func run() error {
 
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.JWTTTL)
 
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api.NewRouter(store, issuer))
+	mux.Handle("/", web.NewRouter())
+
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.NewRouter(store, issuer),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

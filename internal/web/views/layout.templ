@@ -1,0 +1,19 @@
+package views
+
+// Layout is the shared page shell. Styling is deliberately absent for now -
+// this is plumbing to prove the templ/htmx wiring end to end; visual design
+// comes later.
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } - Taskland</title>
+			<script src="/static/htmx.min.js"></script>
+		</head>
+		<body>
+			{ children... }
+		</body>
+	</html>
+}

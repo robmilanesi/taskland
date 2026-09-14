@@ -14,6 +14,9 @@ pre-commit:
     test:
       glob: "*.go"
       run: go test ./...
+    templ:
+      glob: "*.templ"
+      run: templ generate && git diff --exit-code -- '*_templ.go'
 
 pre-push:
   commands:
