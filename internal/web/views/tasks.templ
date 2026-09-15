@@ -1,0 +1,34 @@
+package views
+
+import "github.com/robmilanesi/taskland/internal/models"
+
+templ NewTaskForm() {
+	<form hx-post="/tasks" hx-target="#task-list" hx-swap="outerHTML">
+		<input type="text" name="title" placeholder="New task" required autofocus/>
+		<button type="submit">Add</button>
+	</form>
+}
+
+templ TaskList(tasks []models.Task) {
+	<ul id="task-list">
+		for _, t := range tasks {
+			@TaskRow(t)
+		}
+	</ul>
+}
+
+templ TaskRow(t models.Task) {
+	<li>
+		<label>
+			<input
+				type="checkbox"
+				checked?={ t.Completed }
+				hx-post={ "/tasks/" + t.ID.String() + "/toggle" }
+				hx-target="#task-list"
+				hx-swap="outerHTML"
+			/>
+			{ t.Title }
+		</label>
+		<button hx-post={ "/tasks/" + t.ID.String() + "/delete" } hx-target="#task-list" hx-swap="outerHTML">Delete</button>
+	</li>
+}

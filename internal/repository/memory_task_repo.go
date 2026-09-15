@@ -74,7 +74,7 @@ func (r *inMemoryTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, p
 
 	taskList := []models.Task{}
 	for task := range maps.Values(r.tasks) {
-		if myLists[task.ListID] {
+		if myLists[task.ListID] && matchesList(task, params.ListID) {
 			taskList = append(taskList, task)
 		}
 	}
@@ -95,7 +95,7 @@ func (r *inMemoryTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, p
 	return taskList[offset:end], nil
 }
 
-func (r *inMemoryTaskRepository) Count(ctx context.Context, userID uuid.UUID, _ ListTasksParams) (int, error) {
+func (r *inMemoryTaskRepository) Count(ctx context.Context, userID uuid.UUID, params ListTasksParams) (int, error) {
 	myLists, err := r.myListIDs(ctx, userID)
 	if err != nil {
 		return 0, err
@@ -103,11 +103,17 @@ func (r *inMemoryTaskRepository) Count(ctx context.Context, userID uuid.UUID, _ 
 
 	n := 0
 	for task := range maps.Values(r.tasks) {
-		if myLists[task.ListID] {
+		if myLists[task.ListID] && matchesList(task, params.ListID) {
 			n++
 		}
 	}
 	return n, nil
+}
+
+// matchesList reports whether task belongs to filter, when filter is set; a
+// nil filter matches every task.
+func matchesList(task models.Task, filter *uuid.UUID) bool {
+	return filter == nil || task.ListID == *filter
 }
 
 func (r *inMemoryTaskRepository) Create(ctx context.Context, userID uuid.UUID, task models.Task) (models.Task, error) {

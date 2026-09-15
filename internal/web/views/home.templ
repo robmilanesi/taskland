@@ -1,11 +1,17 @@
 package views
 
-templ Home(userEmail string) {
+import "github.com/robmilanesi/taskland/internal/models"
+
+templ Home(userEmail string, tasks []models.Task) {
 	@Layout("Home") {
-		<h1>Taskland</h1>
-		<p>Logged in as { userEmail }.</p>
-		<form method="post" action="/logout">
-			<button type="submit">Log out</button>
-		</form>
+		<p>
+			Logged in as { userEmail }.
+			<form method="post" action="/logout" style="display:inline">
+				<button type="submit">Log out</button>
+			</form>
+		</p>
+		<h1>Inbox</h1>
+		@NewTaskForm()
+		@TaskList(tasks)
 	}
 }

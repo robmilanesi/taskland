@@ -200,6 +200,30 @@ func testTaskRepositoryContract(t *testing.T, mk func(t *testing.T) (TaskReposit
 		}
 	})
 
+	t.Run("GetAll and Count filter by ListID", func(t *testing.T) {
+		repo, lists := mk(t)
+		listA := newList(t, lists, "a")
+		listB := newList(t, lists, "b")
+		inA := create(t, repo, listA, "in a")
+		create(t, repo, listB, "in b")
+
+		got, err := repo.GetAll(ctx, owner, ListTasksParams{Page: 1, Size: 50, ListID: &listA})
+		if err != nil {
+			t.Fatalf("GetAll: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != inA.ID {
+			t.Errorf("GetAll(ListID=a) = %v, want just %s", idsOf(got), inA.ID)
+		}
+
+		n, err := repo.Count(ctx, owner, ListTasksParams{ListID: &listA})
+		if err != nil {
+			t.Fatalf("Count: %v", err)
+		}
+		if n != 1 {
+			t.Errorf("Count(ListID=a) = %d, want 1", n)
+		}
+	})
+
 	t.Run("Count reflects inserts and deletes", func(t *testing.T) {
 		repo, lists := mk(t)
 		listID := newList(t, lists, "list")

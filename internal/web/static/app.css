@@ -1,0 +1,7 @@
+/* Small overrides on top of Pico's classless defaults (pico.classless.min.css).
+   Pico scales its root font size up with viewport width (fluid typography,
+   meant for article-style pages); an app UI reads as oversized under that on
+   a normal desktop window, so we pin it to a constant size instead. */
+:root {
+	--pico-font-size: 100%;
+}

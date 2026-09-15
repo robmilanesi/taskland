@@ -19,10 +19,13 @@ const (
 	TaskRepoSQLite
 )
 
-// ListTasksParams holds the pagination options for listing tasks.
+// ListTasksParams holds the pagination and filtering options for listing tasks.
 type ListTasksParams struct {
 	Page int
 	Size int
+	// ListID restricts results to a single list, when set. Both GetAll and
+	// Count honor it; left nil, results span every list userID belongs to.
+	ListID *uuid.UUID
 }
 
 // TaskRepository is the storage abstraction for tasks. Every method is scoped to

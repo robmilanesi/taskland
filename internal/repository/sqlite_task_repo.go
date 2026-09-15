@@ -81,10 +81,16 @@ func (r *sqliteTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, par
 	}
 	offset := (params.Page - 1) * params.Size
 
-	rows, err := r.db.QueryContext(ctx,
-		"SELECT "+taskColumns+" FROM tasks WHERE "+isMemberOfTaskList+" ORDER BY created_at LIMIT ? OFFSET ?",
-		userID.String(), params.Size, offset,
-	)
+	query := "SELECT " + taskColumns + " FROM tasks WHERE " + isMemberOfTaskList
+	args := []any{userID.String()}
+	if params.ListID != nil {
+		query += " AND list_id = ?"
+		args = append(args, params.ListID.String())
+	}
+	query += " ORDER BY created_at LIMIT ? OFFSET ?"
+	args = append(args, params.Size, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -104,12 +110,16 @@ func (r *sqliteTaskRepository) GetAll(ctx context.Context, userID uuid.UUID, par
 	return tasks, nil
 }
 
-func (r *sqliteTaskRepository) Count(ctx context.Context, userID uuid.UUID, _ ListTasksParams) (int, error) {
+func (r *sqliteTaskRepository) Count(ctx context.Context, userID uuid.UUID, params ListTasksParams) (int, error) {
+	query := "SELECT COUNT(*) FROM tasks WHERE " + isMemberOfTaskList
+	args := []any{userID.String()}
+	if params.ListID != nil {
+		query += " AND list_id = ?"
+		args = append(args, params.ListID.String())
+	}
+
 	var n int
-	err := r.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM tasks WHERE "+isMemberOfTaskList, userID.String(),
-	).Scan(&n)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count tasks: %w", err)
 	}
 	return n, nil
