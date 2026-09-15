@@ -8,20 +8,35 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/robmilanesi/taskland/internal/repository"
 	"github.com/robmilanesi/taskland/internal/web/views"
 )
 
 // Handler serves the web UI's HTTP endpoints.
-type Handler struct{}
+type Handler struct {
+	users repository.UserRepository
+}
 
-// NewHandler returns a Handler.
-func NewHandler() *Handler {
-	return &Handler{}
+// NewHandler returns a Handler backed by users.
+func NewHandler(users repository.UserRepository) *Handler {
+	return &Handler{users: users}
 }
 
 // Home handles GET /.
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
-	render(w, r, views.Home())
+	userID, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.users.GetUserByID(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	render(w, r, views.Home(user.Email))
 }
 
 // render writes a templ component to the response, logging (rather than

@@ -1,8 +1,11 @@
 package views
 
-templ Home() {
+templ Home(userEmail string) {
 	@Layout("Home") {
 		<h1>Taskland</h1>
-		<p>Web UI under construction.</p>
+		<p>Logged in as { userEmail }.</p>
+		<form method="post" action="/logout">
+			<button type="submit">Log out</button>
+		</form>
 	}
 }
