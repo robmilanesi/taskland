@@ -1,0 +1,22 @@
+package views
+
+templ Register(errorMsg string) {
+	@Layout("Register") {
+		<h1>Register</h1>
+		if errorMsg != "" {
+			<p role="alert">{ errorMsg }</p>
+		}
+		<form method="post" action="/register">
+			<label>
+				Email
+				<input type="email" name="email" required autofocus/>
+			</label>
+			<label>
+				Password
+				<input type="password" name="password" required minlength="8"/>
+			</label>
+			<button type="submit">Register</button>
+		</form>
+		<p><a href="/login">Already have an account? Log in</a></p>
+	}
+}

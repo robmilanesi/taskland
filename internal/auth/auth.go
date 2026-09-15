@@ -28,6 +28,12 @@ func NewIssuer(secret string, ttl time.Duration) *Issuer {
 	return &Issuer{secret: []byte(secret), ttl: ttl}
 }
 
+// TTL returns the lifetime new tokens are issued with, so callers that store
+// a token elsewhere (e.g. a cookie) can match its expiry.
+func (i *Issuer) TTL() time.Duration {
+	return i.ttl
+}
+
 // Issue returns a signed token whose subject is userID.
 func (i *Issuer) Issue(userID uuid.UUID) (string, error) {
 	now := time.Now()

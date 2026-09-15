@@ -12,6 +12,14 @@ import (
 
 const testSecret = "test-secret-that-is-at-least-32-chars"
 
+func TestIssuer_TTL(t *testing.T) {
+	iss := NewIssuer(testSecret, 90*time.Minute)
+
+	if got := iss.TTL(); got != 90*time.Minute {
+		t.Errorf("TTL() = %v, want %v", got, 90*time.Minute)
+	}
+}
+
 func TestIssuer_RoundTrip(t *testing.T) {
 	iss := NewIssuer(testSecret, time.Hour)
 	want := uuid.New()

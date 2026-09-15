@@ -52,7 +52,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.NewRouter(store, issuer))
-	mux.Handle("/", web.NewRouter())
+	mux.Handle("/", web.NewRouter(store, issuer))
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
