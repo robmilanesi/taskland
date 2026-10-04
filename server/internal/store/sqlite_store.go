@@ -89,7 +89,7 @@ func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChan
 		return fmt.Errorf("sync update sequence: %w", err)
 	}
 
-	updateFieldQuery := fmt.Sprintf("UPDATE tasks SET %s = ?, updated_at_ms = ? WHERE id = ?", incoming.Field)
+	updateFieldQuery := fmt.Sprintf("UPDATE tasks SET %s = ?, updated_at_ms = MAX(?, updated_at_ms) WHERE id = ?", incoming.Field)
 	result, err := tx.ExecContext(ctx, updateFieldQuery, incoming.Value, incoming.Version.TimeMS, incoming.EntityID)
 
 	if err != nil {

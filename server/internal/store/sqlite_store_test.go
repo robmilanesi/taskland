@@ -30,9 +30,9 @@ func newTestStore(t *testing.T) *SQLiteStore {
 	return s
 }
 
-func insertTask(t *testing.T, s *SQLiteStore, id string, title string) {
+func insertTask(t *testing.T, s *SQLiteStore, id string, title string, updatedAt int64) {
 	t.Helper()
-	_, err := s.db.Exec("INSERT INTO tasks (id, title, priority, project_id, created_at_ms, updated_at_ms) VALUES (?, ?, 0, '00000000-0000-0000-0000-000000000000', 0, 0)", id, title)
+	_, err := s.db.Exec("INSERT INTO tasks (id, title, priority, project_id, created_at_ms, updated_at_ms) VALUES (?, ?, 0, '00000000-0000-0000-0000-000000000000', 0, ?)", id, title, updatedAt)
 	if err != nil {
 		t.Fatalf("error task fixture: %v", err)
 	}
@@ -60,6 +60,16 @@ func readTitle(t *testing.T, s *SQLiteStore, id string) string {
 		t.Fatalf("fixture read title: %v", err)
 	}
 	return title
+}
+
+func readUpdatedAt(t *testing.T, s *SQLiteStore, id string) int64 {
+	t.Helper()
+	var updatedAt int64
+	err := s.db.QueryRow("SELECT updated_at_ms FROM tasks WHERE id = ?", id).Scan(&updatedAt)
+	if err != nil {
+		t.Fatalf("fixture read title: %v", err)
+	}
+	return updatedAt
 }
 
 func readSequence(t *testing.T, s *SQLiteStore) int64 {
@@ -287,7 +297,7 @@ func TestSyncChange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			s := newTestStore(t)
-			insertTask(t, s, fixtureTaskID, "old")
+			insertTask(t, s, fixtureTaskID, "old", 10)
 			if tc.existingVersion != nil {
 				insertVersion(t, s, fixtureTaskID, fixtureField, tc.existingVersion)
 			}
@@ -320,4 +330,29 @@ func TestSyncChange(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdatedAtDontGoBackwards(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	taskID := strings.Repeat("1", 36)
+	insertTask(t, s, taskID, "title", 10)
+	insertVersion(t, s, taskID, "title", &syncer.FieldVersion{TimeMS: 10, DeviceID: "phone"})
+	change := syncer.EntityChange{
+		EntityID:   taskID,
+		EntityType: "task",
+		Field:      "priority",
+		Value:      2,
+		Version:    syncer.FieldVersion{TimeMS: 4, DeviceID: "pc"},
+	}
+	err := s.SyncChange(ctx, change)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	savedUpdatedAt := readUpdatedAt(t, s, taskID)
+	if savedUpdatedAt != 10 {
+		t.Fatalf("expected update time to be %d, got %d", 10, savedUpdatedAt)
+	}
+
 }
