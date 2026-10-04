@@ -267,6 +267,21 @@ func TestSyncChange(t *testing.T) {
 			expectedError:    ErrTaskNotFound,
 			expectedVersion:  syncer.FieldVersion{TimeMS: 2, DeviceID: "phone"},
 		},
+		{
+			name:            "project not implemnted",
+			existingVersion: &syncer.FieldVersion{TimeMS: 2, DeviceID: "phone"},
+			incoming: syncer.EntityChange{
+				EntityID:   strings.Repeat("0", 36),
+				EntityType: "project",
+				Field:      "title",
+				Value:      "new",
+				Version:    syncer.FieldVersion{TimeMS: 3, DeviceID: "phone"},
+			},
+			expectedTitle:    "old",
+			expectedSequence: 1,
+			expectedError:    ErrProjectNotImplemented,
+			expectedVersion:  syncer.FieldVersion{TimeMS: 2, DeviceID: "phone"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -306,3 +321,17 @@ func TestSyncChange(t *testing.T) {
 		})
 	}
 }
+
+/*func TestProjectNotImplemented(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	s.SyncChange(
+		ctx,
+		syncer.EntityChange{
+			EntityID: strings.Repeat("0", 36),
+			EntityType: "project",
+			Field: "title",
+			Value: "test",
+		}
+	)
+}*/

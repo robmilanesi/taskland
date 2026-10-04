@@ -54,6 +54,10 @@ func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChan
 		return fmt.Errorf("sync change validate: %w", err)
 	}
 
+	if incoming.EntityType == "project" {
+		return fmt.Errorf("sync change: %w", ErrProjectNotImplemented)
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 
 	if err != nil {
