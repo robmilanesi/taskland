@@ -1,0 +1,5 @@
+.claude
+taskland.db
+taskland.db-wal
+taskland.db-shm
+.vscode
