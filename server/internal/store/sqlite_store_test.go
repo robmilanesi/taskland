@@ -321,17 +321,3 @@ func TestSyncChange(t *testing.T) {
 		})
 	}
 }
-
-/*func TestProjectNotImplemented(t *testing.T) {
-	ctx := t.Context()
-	s := newTestStore(t)
-	s.SyncChange(
-		ctx,
-		syncer.EntityChange{
-			EntityID: strings.Repeat("0", 36),
-			EntityType: "project",
-			Field: "title",
-			Value: "test",
-		}
-	)
-}*/
