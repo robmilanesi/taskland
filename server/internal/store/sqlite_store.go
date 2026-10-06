@@ -49,7 +49,29 @@ func (s *SQLiteStore) RunMigrations(ctx context.Context) error {
 	return nil
 }
 
-func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChange) error {
+func (s *SQLiteStore) PushChanges(ctx context.Context, changes []syncer.EntityChange) []error {
+	tx, err := s.db.BeginTx(ctx, nil)
+
+	if err != nil {
+		return []error{fmt.Errorf("push changes: %w", err)}
+	}
+	defer tx.Rollback()
+	var issues []error
+	for _, change := range changes {
+		err := s.SyncChange(ctx, change, tx)
+		if err != nil {
+			issues = append(issues, err)
+		}
+	}
+
+	if len(issues) > 0 {
+		return issues
+	}
+	tx.Commit()
+	return nil
+}
+
+func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChange, tx *sql.Tx) error {
 	if err := incoming.Validate(); err != nil {
 		return fmt.Errorf("sync change validate: %w", err)
 	}
@@ -57,13 +79,17 @@ func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChan
 	if incoming.EntityType == "project" {
 		return fmt.Errorf("sync change: %w", ErrProjectNotImplemented)
 	}
+	var err error
+	handleTx := tx == nil
 
-	tx, err := s.db.BeginTx(ctx, nil)
-
-	if err != nil {
-		return fmt.Errorf("sync change open transaction: %w", err)
+	if handleTx {
+		tx, err = s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("sync change open transaction: %w", err)
+		}
+		defer tx.Rollback()
 	}
-	defer tx.Rollback()
+
 	var curr syncer.FieldVersion
 	row := tx.QueryRowContext(
 		ctx,
@@ -114,7 +140,10 @@ func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChan
 		return fmt.Errorf("sync upsert: %w", err)
 	}
 
-	return tx.Commit()
+	if handleTx {
+		return tx.Commit()
+	}
+	return nil
 }
 
 func NewSQLiteStore(ctx context.Context, dbPath string) (*SQLiteStore, error) {
