@@ -28,6 +28,11 @@ const (
 	migrationFolder = "migrations"
 )
 
+type ChangeIssue struct {
+	Change syncer.EntityChange
+	Err    error
+}
+
 type SQLiteStore struct {
 	db *sql.DB
 }
@@ -49,29 +54,41 @@ func (s *SQLiteStore) RunMigrations(ctx context.Context) error {
 	return nil
 }
 
-func (s *SQLiteStore) PushChanges(ctx context.Context, changes []syncer.EntityChange) []error {
+func (s *SQLiteStore) PushChanges(ctx context.Context, changes []syncer.EntityChange) ([]ChangeIssue, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 
 	if err != nil {
-		return []error{fmt.Errorf("push changes: %w", err)}
+		return nil, fmt.Errorf("push changes: %w", err)
 	}
 	defer tx.Rollback()
-	var issues []error
+	var issues []ChangeIssue
 	for _, change := range changes {
-		err := s.SyncChange(ctx, change, tx)
-		if err != nil {
-			issues = append(issues, err)
+		err := s.syncChange(ctx, change, tx)
+
+		switch {
+		case err == nil:
+			continue
+		case errors.Is(err, ErrTaskNotFound),
+			errors.Is(err, ErrProjectNotImplemented),
+			errors.Is(err, syncer.ErrInvalidEntityField),
+			errors.Is(err, syncer.ErrInvalidEntityType):
+			issues = append(issues, ChangeIssue{Change: change, Err: err})
+		default:
+			return nil, fmt.Errorf("push changes sync: %w", err)
 		}
 	}
 
 	if len(issues) > 0 {
-		return issues
+		return issues, nil
 	}
-	tx.Commit()
-	return nil
+	err = tx.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("push change commit: %w", err)
+	}
+	return nil, nil
 }
 
-func (s *SQLiteStore) SyncChange(ctx context.Context, incoming syncer.EntityChange, tx *sql.Tx) error {
+func (s *SQLiteStore) syncChange(ctx context.Context, incoming syncer.EntityChange, tx *sql.Tx) error {
 	if err := incoming.Validate(); err != nil {
 		return fmt.Errorf("sync change validate: %w", err)
 	}

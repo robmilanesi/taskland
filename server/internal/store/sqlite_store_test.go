@@ -301,7 +301,7 @@ func TestSyncChange(t *testing.T) {
 			if tc.existingVersion != nil {
 				insertVersion(t, s, fixtureTaskID, fixtureField, tc.existingVersion)
 			}
-			err := s.SyncChange(ctx, tc.incoming, nil)
+			err := s.syncChange(ctx, tc.incoming, nil)
 			if !errors.Is(err, tc.expectedError) {
 				t.Fatalf("expected error: \n%v\n got \n%v", tc.expectedError, err)
 			}
@@ -345,7 +345,7 @@ func TestUpdatedAtDontGoBackwards(t *testing.T) {
 		Value:      2,
 		Version:    syncer.FieldVersion{TimeMS: 4, DeviceID: "pc"},
 	}
-	err := s.SyncChange(ctx, change, nil)
+	err := s.syncChange(ctx, change, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -354,6 +354,48 @@ func TestUpdatedAtDontGoBackwards(t *testing.T) {
 	if savedUpdatedAt != 10 {
 		t.Fatalf("expected update time to be %d, got %d", 10, savedUpdatedAt)
 	}
+}
+
+func TestPush_Ok(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	insertTask(t, s, strings.Repeat("1", 36), "saved", 2)
+	insertTask(t, s, strings.Repeat("2", 36), "dos", 2)
+	insertVersion(t, s, strings.Repeat("1", 36), "title", &syncer.FieldVersion{TimeMS: 4, DeviceID: "phone"})
+
+	changes := []syncer.EntityChange{
+		{
+			EntityID:   strings.Repeat("1", 36),
+			EntityType: "task",
+			Field:      "title",
+			Value:      "updated",
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "PC"},
+		},
+		{
+			EntityID:   strings.Repeat("2", 36),
+			EntityType: "task",
+			Field:      "title",
+			Value:      "changed",
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "Test"},
+		},
+	}
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("unhandled error occurred: %v", err)
+	}
+
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got: %v", issues)
+	}
+
+	for _, c := range changes {
+		savedTitle := readTitle(t, s, c.EntityID)
+		if savedTitle != c.Value {
+			t.Fatalf("expected saved title to be: %s, got: %s", c.Value, savedTitle)
+		}
+	}
+
 }
 
 func TestPush_RollbackAllChanges(t *testing.T) {
@@ -385,15 +427,17 @@ func TestPush_RollbackAllChanges(t *testing.T) {
 			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "Test"},
 		},
 	}
-	issues := s.PushChanges(ctx, changes)
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("unhandled error occurred: %v", err)
+	}
 
 	if len(issues) != 2 {
-		t.Fatalf("expected issues to be 1, got: %v", issues)
+		t.Fatalf("expected issues to be 2, got: %v", issues)
 	}
-	if !errors.Is(issues[0], ErrTaskNotFound) {
-		t.Fatalf("expected task not found, got: %v", issues[0])
-	}
-	if !errors.Is(issues[1], syncer.ErrInvalidEntityField) {
-		t.Fatalf("expected task not found, got: %v", issues[0])
+	savedTitle := readTitle(t, s, changes[0].EntityID)
+	if savedTitle != "saved" {
+		t.Fatalf("expected saved title to be: saved, got: %s", savedTitle)
 	}
 }
