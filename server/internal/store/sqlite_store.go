@@ -71,7 +71,13 @@ func (s *SQLiteStore) PushChanges(ctx context.Context, changes []syncer.EntityCh
 		case errors.Is(err, ErrTaskNotFound),
 			errors.Is(err, ErrProjectNotImplemented),
 			errors.Is(err, syncer.ErrInvalidEntityField),
-			errors.Is(err, syncer.ErrInvalidEntityType):
+			errors.Is(err, syncer.ErrInvalidEntityType),
+			errors.Is(err, syncer.ErrInvalidTitle),
+			errors.Is(err, syncer.ErrTooLongTitle),
+			errors.Is(err, syncer.ErrInvalidDescription),
+			errors.Is(err, syncer.ErrInvalidPriority),
+			errors.Is(err, syncer.ErrInvalidTimestamp),
+			errors.Is(err, syncer.ErrInvalidProjectID):
 			issues = append(issues, ChangeIssue{Change: change, Err: err})
 		default:
 			return nil, fmt.Errorf("push changes sync: %w", err)

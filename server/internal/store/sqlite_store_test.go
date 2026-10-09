@@ -433,11 +433,73 @@ func TestPush_RollbackAllChanges(t *testing.T) {
 		t.Fatalf("unhandled error occurred: %v", err)
 	}
 
-	if len(issues) != 2 {
-		t.Fatalf("expected issues to be 2, got: %v", issues)
+	expectedIssues := []struct {
+		change syncer.EntityChange
+		err    error
+	}{
+		{change: changes[1], err: syncer.ErrInvalidPriority},
+		{change: changes[2], err: syncer.ErrInvalidEntityField},
 	}
+	if len(issues) != len(expectedIssues) {
+		t.Fatalf("expected %d issues, got: %v", len(expectedIssues), issues)
+	}
+	for i, expected := range expectedIssues {
+		got := issues[i]
+		if got.Change.EntityID != expected.change.EntityID ||
+			got.Change.Field != expected.change.Field ||
+			got.Change.Version != expected.change.Version {
+			t.Fatalf("issue %d: expected change %+v, got %+v", i, expected.change, got.Change)
+		}
+		if !errors.Is(got.Err, expected.err) {
+			t.Fatalf("issue %d: expected error %v, got %v", i, expected.err, got.Err)
+		}
+	}
+
 	savedTitle := readTitle(t, s, changes[0].EntityID)
 	if savedTitle != "saved" {
 		t.Fatalf("expected saved title to be: saved, got: %s", savedTitle)
+	}
+
+	sequence := readSequence(t, s)
+	if sequence != 1 {
+		t.Fatalf("expected sequence to be 1, got %d", sequence)
+	}
+}
+
+func TestPush_InvalidValueIsIssueNotError(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	taskID := strings.Repeat("1", 36)
+	insertTask(t, s, taskID, "saved", 2)
+
+	changes := []syncer.EntityChange{
+		{
+			EntityID:   taskID,
+			EntityType: "task",
+			Field:      "priority",
+			Value:      4,
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "phone"},
+		},
+		{
+			EntityID:   taskID,
+			EntityType: "task",
+			Field:      "title",
+			Value:      strings.Repeat("a", 141),
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "phone"},
+		},
+	}
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("expected issues, got error: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got: %v", issues)
+	}
+	if !errors.Is(issues[0].Err, syncer.ErrInvalidPriority) {
+		t.Fatalf("expected %v, got %v", syncer.ErrInvalidPriority, issues[0].Err)
+	}
+	if !errors.Is(issues[1].Err, syncer.ErrTooLongTitle) {
+		t.Fatalf("expected %v, got %v", syncer.ErrTooLongTitle, issues[1].Err)
 	}
 }
