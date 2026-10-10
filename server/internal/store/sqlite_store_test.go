@@ -301,7 +301,7 @@ func TestSyncChange(t *testing.T) {
 			if tc.existingVersion != nil {
 				insertVersion(t, s, fixtureTaskID, fixtureField, tc.existingVersion)
 			}
-			err := s.SyncChange(ctx, tc.incoming)
+			err := s.syncChange(ctx, tc.incoming, nil)
 			if !errors.Is(err, tc.expectedError) {
 				t.Fatalf("expected error: \n%v\n got \n%v", tc.expectedError, err)
 			}
@@ -345,7 +345,7 @@ func TestUpdatedAtDontGoBackwards(t *testing.T) {
 		Value:      2,
 		Version:    syncer.FieldVersion{TimeMS: 4, DeviceID: "pc"},
 	}
-	err := s.SyncChange(ctx, change)
+	err := s.syncChange(ctx, change, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -354,5 +354,152 @@ func TestUpdatedAtDontGoBackwards(t *testing.T) {
 	if savedUpdatedAt != 10 {
 		t.Fatalf("expected update time to be %d, got %d", 10, savedUpdatedAt)
 	}
+}
 
+func TestPush_Ok(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	insertTask(t, s, strings.Repeat("1", 36), "saved", 2)
+	insertTask(t, s, strings.Repeat("2", 36), "dos", 2)
+	insertVersion(t, s, strings.Repeat("1", 36), "title", &syncer.FieldVersion{TimeMS: 4, DeviceID: "phone"})
+
+	changes := []syncer.EntityChange{
+		{
+			EntityID:   strings.Repeat("1", 36),
+			EntityType: "task",
+			Field:      "title",
+			Value:      "updated",
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "PC"},
+		},
+		{
+			EntityID:   strings.Repeat("2", 36),
+			EntityType: "task",
+			Field:      "title",
+			Value:      "changed",
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "Test"},
+		},
+	}
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("unhandled error occurred: %v", err)
+	}
+
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got: %v", issues)
+	}
+
+	for _, c := range changes {
+		savedTitle := readTitle(t, s, c.EntityID)
+		if savedTitle != c.Value {
+			t.Fatalf("expected saved title to be: %s, got: %s", c.Value, savedTitle)
+		}
+	}
+
+}
+
+func TestPush_RollbackAllChanges(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	insertTask(t, s, strings.Repeat("1", 36), "saved", 2)
+	insertVersion(t, s, strings.Repeat("1", 36), "title", &syncer.FieldVersion{TimeMS: 4, DeviceID: "phone"})
+
+	changes := []syncer.EntityChange{
+		{
+			EntityID:   strings.Repeat("1", 36),
+			EntityType: "task",
+			Field:      "title",
+			Value:      "updated",
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "PC"},
+		},
+		{
+			EntityID:   strings.Repeat("2", 36),
+			EntityType: "task",
+			Field:      "priority",
+			Value:      4,
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "Test"},
+		},
+		{
+			EntityID:   strings.Repeat("1", 36),
+			EntityType: "task",
+			Field:      "invalid",
+			Value:      4,
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "Test"},
+		},
+	}
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("unhandled error occurred: %v", err)
+	}
+
+	expectedIssues := []struct {
+		change syncer.EntityChange
+		err    error
+	}{
+		{change: changes[1], err: syncer.ErrInvalidPriority},
+		{change: changes[2], err: syncer.ErrInvalidEntityField},
+	}
+	if len(issues) != len(expectedIssues) {
+		t.Fatalf("expected %d issues, got: %v", len(expectedIssues), issues)
+	}
+	for i, expected := range expectedIssues {
+		got := issues[i]
+		if got.Change.EntityID != expected.change.EntityID ||
+			got.Change.Field != expected.change.Field ||
+			got.Change.Version != expected.change.Version {
+			t.Fatalf("issue %d: expected change %+v, got %+v", i, expected.change, got.Change)
+		}
+		if !errors.Is(got.Err, expected.err) {
+			t.Fatalf("issue %d: expected error %v, got %v", i, expected.err, got.Err)
+		}
+	}
+
+	savedTitle := readTitle(t, s, changes[0].EntityID)
+	if savedTitle != "saved" {
+		t.Fatalf("expected saved title to be: saved, got: %s", savedTitle)
+	}
+
+	sequence := readSequence(t, s)
+	if sequence != 1 {
+		t.Fatalf("expected sequence to be 1, got %d", sequence)
+	}
+}
+
+func TestPush_InvalidValueIsIssueNotError(t *testing.T) {
+	ctx := t.Context()
+	s := newTestStore(t)
+	taskID := strings.Repeat("1", 36)
+	insertTask(t, s, taskID, "saved", 2)
+
+	changes := []syncer.EntityChange{
+		{
+			EntityID:   taskID,
+			EntityType: "task",
+			Field:      "priority",
+			Value:      4,
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "phone"},
+		},
+		{
+			EntityID:   taskID,
+			EntityType: "task",
+			Field:      "title",
+			Value:      strings.Repeat("a", 141),
+			Version:    syncer.FieldVersion{TimeMS: 5, DeviceID: "phone"},
+		},
+	}
+	issues, err := s.PushChanges(ctx, changes)
+
+	if err != nil {
+		t.Fatalf("expected issues, got error: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got: %v", issues)
+	}
+	if !errors.Is(issues[0].Err, syncer.ErrInvalidPriority) {
+		t.Fatalf("expected %v, got %v", syncer.ErrInvalidPriority, issues[0].Err)
+	}
+	if !errors.Is(issues[1].Err, syncer.ErrTooLongTitle) {
+		t.Fatalf("expected %v, got %v", syncer.ErrTooLongTitle, issues[1].Err)
+	}
 }
